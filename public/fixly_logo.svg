@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 180" role="img" aria-labelledby="title desc">
+  <title id="title">Fixly logo</title>
+  <desc id="desc">Stylized F icon with the word Fixly in white on a transparent background.</desc>
+  <defs>
+    <style>
+      .mark { fill: none; stroke: #ffffff; stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; }
+      .word { fill: #ffffff; font-family: Inter, Poppins, Arial, Helvetica, sans-serif; font-size: 88px; font-weight: 400; letter-spacing: 0px; }
+    </style>
+  </defs>
+
+  <!-- Stylized F mark -->
+  <path class="mark" d="M34 54 L52 36 H136 L120 62 H74 V86 H112 L96 112 H74 V146 L56 162 H34 Z"/>
+  <path class="mark" d="M34 54 L34 146"/>
+
+  <!-- Wordmark -->
+  <text class="word" x="168" y="118">Fixly</text>
+</svg>
