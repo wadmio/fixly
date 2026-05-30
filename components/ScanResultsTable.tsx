@@ -64,6 +64,11 @@ export default function ScanResultsTable({
                 {/* Severity */}
                 <td className="px-4 py-3.5">
                   <Badge severity={vuln.severity} />
+                  {vuln.cvssScore !== null && (
+                    <p className="mt-0.5 font-mono text-xs text-[#BFC3C7]/60">
+                      {vuln.cvssScore.toFixed(1)}
+                    </p>
+                  )}
                 </td>
 
                 {/* Summary */}
