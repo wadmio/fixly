@@ -109,6 +109,11 @@ function extractCvssVector(vuln: OsvVuln): string | null {
   return vuln.severity?.find((s) => s.type === "CVSS_V3")?.score ?? null;
 }
 
+function extractCvssScore(vuln: OsvVuln): number | null {
+  const vector = extractCvssVector(vuln);
+  return vector ? cvssV3BaseScore(vector) : null;
+}
+
 export function normalizeOsvResults(
   packageName: string,
   installedVersion: string,
@@ -134,6 +139,7 @@ export function normalizeOsvResults(
     fixedVersion: extractFixedVersion(vuln),
     severity: extractSeverity(vuln),
     cvssVector: extractCvssVector(vuln),
+    cvssScore: extractCvssScore(vuln),
     title: vuln.summary ?? vuln.id,
     description: vuln.details ?? "",
     references: vuln.references?.map((r) => r.url) ?? [],

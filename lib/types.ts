@@ -14,6 +14,7 @@ export interface ScanVulnerability {
   fixedVersion: string | null;
   severity: Severity;
   cvssVector: string | null;
+  cvssScore: number | null;
   title: string;
   description: string;
   references: string[];
