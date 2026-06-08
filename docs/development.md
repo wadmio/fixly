@@ -12,6 +12,16 @@ file. Install once at the root:
 pnpm install
 ```
 
+## Environment
+
+Fixly runs with no environment variables. One is optional:
+
+- **`GITHUB_TOKEN`** (server-side only) — raises GitHub's API rate limit from
+  ~60/hour to ~5,000/hour for repo scanning. See [.env.example](../.env.example).
+  - Web app: copy `.env.example` to `apps/web/.env.local` and set the value.
+  - Validation / extension host: export `GITHUB_TOKEN` in your shell.
+  - It is read by `@fixly/core` on the server and is never sent to the browser.
+
 ## Workspace tasks (from the repo root)
 
 All tasks run through Turborepo, which executes them across every package:
@@ -58,6 +68,19 @@ pnpm --filter fixly-vscode build
 Then open `apps/extension` in VS Code and press <kbd>F5</kbd> to launch an Extension Development
 Host. In that window, open a Node.js project folder and run **Fixly: Scan Current Project** from the
 command palette. The report opens in a webview; logs go to the "Fixly" output channel.
+
+## Validation (live)
+
+`pnpm validate` ([scripts/validate.ts](../scripts/validate.ts)) runs the real
+scanner against a fixed set of repositories — vulnerable, clean, invalid URL,
+non-GitHub, repo-not-found, missing `package.json`, and branch+subpath — and
+prints a report. It hits the live GitHub + OSV APIs; set `GITHUB_TOKEN` to avoid
+rate limits. The captured results live in
+[../validation-notes.md](../validation-notes.md).
+
+```bash
+pnpm validate
+```
 
 ## Adding dependencies
 

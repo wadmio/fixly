@@ -1,68 +1,89 @@
 # Fixly – Scan Result Validation Notes
-**Author:** Riyadh Al-Hoyidy  
-**Date:** 2026-05-29  
-**Phase:** Phase 2 – OSV/NVD Validation & CVE Matching Checks
+
+**Last updated:** 2026-06-07
+**Original author:** Riyadh Al-Hoyidy (Phase 2 OSV/CVE validation)
+**Updated for:** the product-grade workspace refactor (Weeks 2–6 acceptance)
+
+All results below were produced by the real scanner via `pnpm validate`
+([scripts/validate.ts](scripts/validate.ts)), which calls `@fixly/core`'s
+`runScan` against the live GitHub and OSV APIs (unauthenticated).
 
 ---
 
-## Repositories Tested
+## What works (verified)
 
-| Repository | Packages Scanned | Critical | High | Medium | Low | Total Vulns |
-|---|---|---|---|---|---|---|
-| OWASP/NodeGoat | 36 | 1 | 10 | 5 | 1 | 17 |
-| juice-shop/juice-shop | 129 | 2 | 12 | 12 | 0 | 26 |
-| wadmio/fixly | 11 | 0 | 7 | 4 | 2 | 13 |
+- **Repository fetch** — public repos resolved by URL, including default-branch
+  detection and explicit `tree/<branch>/<subpath>` URLs.
+- **Dependency extraction** — `package.json` always; `package-lock.json` when
+  present; a missing lock file is a warning, not a failure.
+- **Dependency parsing** — direct `dependencies` + `devDependencies`, exact
+  versions from lock v1/v2/v3, semver ranges resolved where possible,
+  unresolvable specifiers skipped **with a warning** (never invented).
+- **OSV matching** — CVE/GHSA IDs, severity, CVSS score, fix version, summary.
+- **Severity sorting** — critical → high → medium → low → unknown.
+- **Structured errors** — `invalid_url`, `repo_not_found`, `private_repo`,
+  `branch_not_found`, `no_package_json`, `no_dependencies`, `rate_limited`.
+- **Scan target reporting** — owner/repo, branch used, files found/missing,
+  subpath.
 
----
+## What was removed as fake/mock/demo code (refactor)
 
-## What Is Working Correctly
+- `lib/mock-data.ts` — hardcoded fake projects, scans, and vulnerabilities.
+- The mock dashboard at `/dashboard` (fake stat cards, fake projects table,
+  fake "recent scans") and its **dead** `View results` links to
+  `/dashboard/{projectId}/scan/{scanId}` (routes that never existed).
+- `StatusDot` and placeholder sidebar nav (Projects/Vulnerabilities/Settings all
+  pointed at `/dashboard`) and the fake `user@example.com / Free plan` footer.
+- Misleading landing copy (fabricated "180k+ CVEs / <2s" stats; "npm · yarn ·
+  pnpm" — only npm is supported; "paste your package.json" — it takes a repo URL).
 
-- **Severity badges** display with correct colour coding: Critical (red), High (orange), Medium (yellow), Low (blue)
-- **CVE and GHSA IDs** both appear correctly in the ID column
-- **Fix versions** are shown with a → arrow for most vulnerabilities
-- **Results are sorted by severity** (Critical first, then High, Medium, Low) — matches expected behaviour
-- **Package name and installed version** display correctly on each row
-- **Scan timestamp and package count** display correctly at the top of the results page
-- **OSV API integration** is confirmed working — all three scans returned accurate, real vulnerability data
+No fake scan data remains in any product route.
 
----
+## Current limitations
 
-## Issues Found
-
-### 1. Missing Fix Version (No Fallback Text)
-- **Affected:** `marasdb` v0.6.11 in the juice-shop scan
-- **Issue:** The Fix column is blank when no safe upgrade version is available in the OSV record
-- **Expected behaviour:** Should display "No fix available" or similar instead of an empty cell
-- **Impact:** Users may not know whether a fix exists or whether the data simply failed to load
-
-### 2. CVSS Numeric Score Not Displayed
-- **Affected:** All scan results
-- **Issue:** Only the severity label (e.g. High, Medium) is shown — the numeric CVSS score (e.g. 9.8, 7.5) is not displayed
-- **Expected behaviour:** Per Phase 2 plan, severity display should include the CVSS score alongside the label
-- **Impact:** Developers cannot assess relative risk between two vulnerabilities with the same severity label
-
-### 3. Fixly Repo Has 13 Active Vulnerabilities
-- **Affected:** `wadmio/fixly` — `next` v16.2.3
-- **Issue:** All 13 vulnerabilities are in the Next.js dependency. Fix version shown is 15.5.16
-- **Recommended action:** Run `npm update next` or pin Next.js to a safe version in package.json
-
----
-
-## Recommendations for Phase 2
-
-| Priority | Item |
-|---|---|
-| High | Add fallback text ("No fix available") when Fix version is missing |
-| High | Display CVSS numeric score alongside severity badge |
-| Medium | Add a tooltip or expandable row showing full CVE description |
-| Medium | Group multiple vulnerabilities from the same package into one row |
-| Low | Add a "copy CVE ID" button for quick reference |
+- npm only; **direct** dependencies only (no transitive analysis).
+- Without a lock file, versions are the resolved minimum of each range, so
+  results are approximate (surfaced as a warning).
+- Unauthenticated GitHub requests are rate-limited (~60/h). Set `GITHUB_TOKEN`
+  (server-side) to raise this; `rate_limited` is reported clearly when hit.
+- npm alias specifiers (`"x": "npm:y@2"`), git/url, and dist-tag (`latest`)
+  versions cannot be resolved and are skipped with a warning.
+- Severity is `unknown` when OSV provides neither a CVSS vector nor a database
+  severity.
 
 ---
 
-## Validation Method
+## Validation matrix (live runs, 2026-06-07)
 
-All scans were run locally using the Fixly web scanner at `localhost:3000`.  
-Vulnerability data is sourced from the OSV API (`api.osv.dev/v1`).  
-Results were compared visually against known-vulnerable repositories to confirm accuracy.  
-No false positives were identified in the tested repositories.
+| # | Case | Input | Result |
+|---|---|---|---|
+| 1 | Vulnerable repo | `OWASP/NodeGoat` | 36 deps, **17 vulns** — C1 H10 M5 L1. Branch `master`; `package.json` + `package-lock.json` found. |
+| 2 | Clean / low-finding repo | `sindresorhus/slugify` | 4 deps, **0 vulns**. No lock file → approximate-version warning. |
+| 3 | Invalid URL | `not-a-real-url` | `invalid_url` error, no crash. |
+| 4 | Non-GitHub URL | `https://gitlab.com/foo/bar` | `invalid_url` error. |
+| 5 | Repo not found | `wadmio/this-repo-does-not-exist-zzz` | `repo_not_found` error (message notes it may also be private). |
+| 6 | Missing package.json | `github/gitignore` | `no_package_json` error on branch `main`. |
+| 7 | Branch + subpath | `vercel/next.js` → `tree/canary/packages/next` | 229 deps, **219 resolved**, 21 vulns (H10 M4 L7). Branch `canary`, subpath honored; 10 npm-alias specifiers skipped with a warning. |
+
+### CVE/GHSA matching check
+
+NodeGoat's 17 findings (C1/H10/M5/L1) match the pre-refactor Phase 2 numbers in
+this file's earlier revision, confirming the scanner's matching behavior was
+preserved through the extraction into `@fixly/core`. IDs appear as both `GHSA-…`
+and `CVE-…`; fix versions render when OSV provides them.
+
+### Error paths covered by unit tests
+
+`branch_not_found`, `private_repo`, and `rate_limited` are hard to trigger on
+demand against live GitHub, so they are covered by mocked-`fetch` unit tests in
+[packages/core/tests/github-fetch.test.ts](packages/core/tests/github-fetch.test.ts)
+alongside the success path.
+
+---
+
+## How to reproduce
+
+```bash
+pnpm validate          # runs scripts/validate.ts against the cases above
+pnpm --filter @fixly/core test   # unit tests (no network)
+```

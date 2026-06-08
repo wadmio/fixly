@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { parseGitHubUrl } from "@fixly/core/url";
 
 export default function ScanForm({ defaultValue = "" }: { defaultValue?: string }) {
   const [url, setUrl] = useState(defaultValue);
@@ -15,8 +16,10 @@ export default function ScanForm({ defaultValue = "" }: { defaultValue?: string 
       setError("Please enter a GitHub repository URL.");
       return;
     }
-    if (!trimmed.includes("github.com")) {
-      setError("Only public GitHub repositories are supported.");
+    if (!parseGitHubUrl(trimmed)) {
+      setError(
+        "Enter a valid public GitHub URL, e.g. https://github.com/owner/repo"
+      );
       return;
     }
     setError("");

@@ -1,31 +1,51 @@
 import { describe, it, expect } from "vitest";
-import { parsePackages } from "../src/parse-packages";
+import { parseDependencies, resolveCheckVersion } from "../src/parse-packages";
+import type { DependencyEntry } from "../src/types";
 
-describe("parsePackages — dependency extraction", () => {
-  it("extracts dependencies and devDependencies, marking dev correctly", () => {
-    const { packages } = parsePackages(
-      {
-        dependencies: { a: "^1.2.3" },
-        devDependencies: { b: "~2.0.0" },
-      },
+const entry = (over: Partial<DependencyEntry>): DependencyEntry => ({
+  name: "a",
+  requestedVersion: "^1.2.3",
+  installedVersion: null,
+  dependencyType: "dependencies",
+  sourceFile: "package.json",
+  ...over,
+});
+
+describe("parseDependencies — extraction", () => {
+  it("normalizes dependencies and devDependencies", () => {
+    const { dependencies } = parseDependencies(
+      { dependencies: { a: "^1.2.3" }, devDependencies: { b: "~2.0.0" } },
       null
     );
-    expect(packages).toContainEqual({ name: "a", version: "1.2.3", isDev: false });
-    expect(packages).toContainEqual({ name: "b", version: "2.0.0", isDev: true });
+    expect(dependencies).toContainEqual(
+      entry({ name: "a", requestedVersion: "^1.2.3", dependencyType: "dependencies" })
+    );
+    expect(dependencies).toContainEqual(
+      entry({ name: "b", requestedVersion: "~2.0.0", dependencyType: "devDependencies" })
+    );
+  });
+
+  it("lets dependencies take precedence over devDependencies", () => {
+    const { dependencies } = parseDependencies(
+      { dependencies: { a: "^1.0.0" }, devDependencies: { a: "^2.0.0" } },
+      null
+    );
+    expect(dependencies.filter((d) => d.name === "a")).toHaveLength(1);
+    expect(dependencies[0].dependencyType).toBe("dependencies");
   });
 });
 
-describe("parsePackages — lockfile version resolution", () => {
-  it("resolves versions from a v1 lockfile (dependencies map)", () => {
-    const { packages } = parsePackages(
+describe("parseDependencies — lockfile resolution", () => {
+  it("resolves installedVersion from a v1 lockfile (dependencies map)", () => {
+    const { dependencies } = parseDependencies(
       { dependencies: { a: "^1.0.0" } },
       { dependencies: { a: { version: "1.5.0" } } }
     );
-    expect(packages).toEqual([{ name: "a", version: "1.5.0", isDev: false }]);
+    expect(dependencies[0].installedVersion).toBe("1.5.0");
   });
 
-  it("resolves versions from a v2/v3 lockfile (packages map), ignoring nested deps", () => {
-    const { packages } = parsePackages(
+  it("resolves from a v2/v3 lockfile (packages map), ignoring nested deps", () => {
+    const { dependencies } = parseDependencies(
       { dependencies: { a: "^1.0.0" } },
       {
         lockfileVersion: 3,
@@ -36,37 +56,35 @@ describe("parsePackages — lockfile version resolution", () => {
         },
       }
     );
-    expect(packages).toEqual([{ name: "a", version: "1.9.0", isDev: false }]);
-  });
-
-  it("prefers the lockfile version over the package.json range", () => {
-    const { packages } = parsePackages(
-      { dependencies: { a: "^1.0.0" } },
-      {
-        lockfileVersion: 2,
-        packages: { "node_modules/a": { version: "1.4.2" } },
-      }
-    );
-    expect(packages[0].version).toBe("1.4.2");
+    expect(dependencies).toHaveLength(1);
+    expect(dependencies[0].installedVersion).toBe("1.9.0");
   });
 });
 
-describe("parsePackages — warnings", () => {
+describe("parseDependencies — warnings", () => {
   it("warns when no lockfile is provided", () => {
-    const { warnings } = parsePackages({ dependencies: { a: "1.0.0" } }, null);
-    expect(warnings.some((w) => w.toLowerCase().includes("no package-lock.json"))).toBe(
-      true
-    );
+    const { warnings } = parseDependencies({ dependencies: { a: "1.0.0" } }, null);
+    expect(
+      warnings.some((w) => w.toLowerCase().includes("no package-lock.json"))
+    ).toBe(true);
   });
 
-  it("warns about and skips unresolvable version ranges", () => {
-    const { packages, warnings } = parsePackages(
+  it("warns about and flags unresolvable version ranges", () => {
+    const { dependencies, warnings } = parseDependencies(
       { dependencies: { x: "*", y: "latest" } },
       null
     );
-    expect(packages).toEqual([]);
-    const unresolved = warnings.find((w) => w.includes("Could not resolve"));
-    expect(unresolved).toContain("x");
-    expect(unresolved).toContain("y");
+    expect(dependencies.every((d) => resolveCheckVersion(d) === null)).toBe(true);
+    const w = warnings.find((m) => m.includes("Could not determine a version"));
+    expect(w).toContain("x");
+    expect(w).toContain("y");
+  });
+});
+
+describe("resolveCheckVersion", () => {
+  it("prefers the lock version, falls back to the cleaned range, else null", () => {
+    expect(resolveCheckVersion(entry({ installedVersion: "1.5.0" }))).toBe("1.5.0");
+    expect(resolveCheckVersion(entry({ requestedVersion: "^1.2.3", installedVersion: null }))).toBe("1.2.3");
+    expect(resolveCheckVersion(entry({ requestedVersion: "*", installedVersion: null }))).toBeNull();
   });
 });

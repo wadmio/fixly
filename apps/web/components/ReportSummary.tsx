@@ -47,8 +47,33 @@ export default function ReportSummary({ result }: { result: ScanResult }) {
           <h1 className="text-lg font-semibold text-white">{repoLabel}</h1>
         </div>
         <p className="mt-1 text-sm text-[#BFC3C7]">
-          {result.totalPackages} packages scanned &middot; {scannedAt} &middot; OSV
+          {result.totalPackages}{" "}
+          {result.totalPackages === 1 ? "dependency" : "dependencies"} &middot;{" "}
+          {result.resolvedPackages} checked
+          {result.target.branch ? (
+            <>
+              {" "}
+              &middot; branch{" "}
+              <span className="font-mono text-xs">{result.target.branch}</span>
+            </>
+          ) : null}{" "}
+          &middot; {scannedAt} &middot; OSV
         </p>
+        {(result.target.filesFound.length > 0 || result.target.subpath) && (
+          <p className="mt-1 text-xs text-[#BFC3C7]/60">
+            {result.target.subpath ? (
+              <>
+                path{" "}
+                <span className="font-mono">{result.target.subpath}</span>
+                {" · "}
+              </>
+            ) : null}
+            files found: {result.target.filesFound.join(", ") || "none"}
+            {result.target.filesMissing.length > 0
+              ? ` · missing: ${result.target.filesMissing.join(", ")}`
+              : ""}
+          </p>
+        )}
       </div>
 
       {/* Severity cards */}
@@ -84,7 +109,7 @@ export default function ReportSummary({ result }: { result: ScanResult }) {
           </svg>
           <p className="mt-3 text-sm font-medium text-white">No vulnerabilities found</p>
           <p className="mt-1 text-xs text-[#BFC3C7]">
-            All {result.totalPackages} packages are clean per OSV.
+            All {result.resolvedPackages} checked packages are clean per OSV.
           </p>
         </div>
       )}

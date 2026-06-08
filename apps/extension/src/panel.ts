@@ -29,7 +29,7 @@ function buildSummaryText(result: ScanResult): string {
   const lines = [
     `Fixly scan — ${result.repo}`,
     `Scanned: ${result.scannedAt}`,
-    `Packages: ${result.totalPackages}`,
+    `Packages: ${result.totalPackages} declared, ${result.resolvedPackages} checked`,
     `Vulnerabilities: ${result.vulnerabilities.length} (critical ${counts.critical}, high ${counts.high}, medium ${counts.medium}, low ${counts.low}, unknown ${counts.unknown})`,
     "",
   ];
@@ -76,7 +76,7 @@ function renderHtml(result: ScanResult, nonce: string): string {
       ? `<div class="warnings">
           <div class="warnings-title">Warnings</div>
           <ul>
-            ${result.error ? `<li class="err">${escapeHtml(result.error)}</li>` : ""}
+            ${result.error ? `<li class="err">${escapeHtml(result.error.message)}</li>` : ""}
             ${result.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}
           </ul>
         </div>`
@@ -137,7 +137,8 @@ function renderHtml(result: ScanResult, nonce: string): string {
 </head>
 <body>
   <h1>${escapeHtml(result.repo)}</h1>
-  <div class="sub">${result.totalPackages} packages scanned · ${escapeHtml(result.scannedAt)} · OSV</div>
+  <div class="sub">${result.totalPackages} dependencies · ${result.resolvedPackages} checked${result.target.branch ? ` · branch ${escapeHtml(result.target.branch)}` : ""} · ${escapeHtml(result.scannedAt)} · OSV</div>
+  ${result.target.filesFound.length ? `<div class="sub">files: ${escapeHtml(result.target.filesFound.join(", "))}${result.target.filesMissing.length ? ` · missing: ${escapeHtml(result.target.filesMissing.join(", "))}` : ""}</div>` : ""}
 
   <div class="actions">
     <button id="rescan">Rescan Project</button>

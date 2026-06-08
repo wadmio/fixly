@@ -62,7 +62,7 @@ All scanning logic lives here so the web app and the extension never duplicate i
 
 1. `parseGitHubUrl` / `fetchProjectFiles` — locate and download `package.json` / `package-lock.json`.
 2. `parsePackages` — resolve direct dependencies to concrete versions (lock file preferred), with warnings for a missing lock file or unresolvable ranges.
-3. `queryOsvBatch` — ask OSV which packages/versions are vulnerable, then fetch full records.
+3. `queryOsvBatch` — ask OSV which packages/versions are vulnerable, then fetch full records (OSV is the only live source — see [docs/vulnerability-sources.md](docs/vulnerability-sources.md)).
 4. `normalizeOsvResults` — produce a clean `ScanVulnerability` (severity, CVSS, CVE, fix version).
 5. `scanProjectFiles` / `runScan` — orchestrate the above and return a severity-sorted `ScanResult`.
 
@@ -71,6 +71,16 @@ All scanning logic lives here so the web app and the extension never duplicate i
 Submit a public GitHub URL on the dashboard. A Next.js **Server Component** runs `runScan()` from
 `@fixly/core` on the server and renders the report (summary cards, warnings, findings table, raw
 JSON). There is also a `POST /api/scan` endpoint for programmatic use.
+
+Supported URL formats:
+
+- `https://github.com/owner/repo`
+- `github.com/owner/repo` (protocol optional)
+- `https://github.com/owner/repo/tree/<branch>`
+- `https://github.com/owner/repo/tree/<branch>/<subfolder>`
+
+Invalid or non-GitHub URLs, missing repos or branches, private repos, and repos
+without a `package.json` each return a clear, specific error.
 
 ### VS Code extension — `fixly-vscode`
 
@@ -98,6 +108,19 @@ Scope to a single package with `--filter`, e.g.:
 ```bash
 pnpm --filter @fixly/core test
 pnpm --filter fixly-vscode build
+```
+
+### GitHub token (optional)
+
+Unauthenticated GitHub requests are rate-limited (~60/hour). To raise the limit,
+set a **server-side** `GITHUB_TOKEN` (see [.env.example](.env.example)) — copy it
+to `apps/web/.env.local` for the web app, or export it before `pnpm validate`. It
+is never exposed to the client.
+
+### Validation
+
+```bash
+pnpm validate   # runs scripts/validate.ts against live GitHub + OSV (see validation-notes.md)
 ```
 
 More detail in [docs/development.md](docs/development.md).

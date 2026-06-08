@@ -1,5 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runScan } from "@fixly/core";
+import { runScan, type ScanErrorCode } from "@fixly/core";
+
+const ERROR_STATUS: Record<ScanErrorCode, number> = {
+  invalid_url: 400,
+  repo_not_found: 404,
+  private_repo: 403,
+  branch_not_found: 404,
+  no_package_json: 422,
+  no_dependencies: 422,
+  rate_limited: 429,
+  osv_failed: 502,
+  github_error: 502,
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,6 +26,13 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await runScan(repoUrl);
+
+    if (result.error) {
+      return NextResponse.json(result, {
+        status: ERROR_STATUS[result.error.code] ?? 400,
+      });
+    }
+
     return NextResponse.json(result);
   } catch (err) {
     console.error("[/api/scan]", err);
