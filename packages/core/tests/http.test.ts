@@ -42,13 +42,27 @@ describe("fetchWithRetry", () => {
     expect(f).toHaveBeenCalledTimes(2);
   });
 
-  it("does not retry a definitive 404", async () => {
-    const f = vi.fn().mockResolvedValue(res(404));
+  it("retries a 429 (rate limited) then succeeds", async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(res(429))
+      .mockResolvedValueOnce(res(200));
     vi.stubGlobal("fetch", f);
     const r = await fetchWithRetry("http://x", undefined, { baseDelayMs: 0 });
-    expect(r.status).toBe(404);
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(r.status).toBe(200);
+    expect(f).toHaveBeenCalledTimes(2);
   });
+
+  it.each([401, 403, 404])(
+    "does not retry the permanent client error %i",
+    async (status) => {
+      const f = vi.fn().mockResolvedValue(res(status));
+      vi.stubGlobal("fetch", f);
+      const r = await fetchWithRetry("http://x", undefined, { baseDelayMs: 0 });
+      expect(r.status).toBe(status);
+      expect(f).toHaveBeenCalledTimes(1);
+    }
+  );
 });
 
 describe("mapWithConcurrency", () => {
