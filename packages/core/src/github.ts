@@ -1,243 +1,186 @@
-export interface GitHubRepo {
-  owner: string;
-  repo: string;
-  branch?: string;   // extracted from /tree/<branch>/...
-  subpath?: string;  // extracted from /tree/<branch>/<subpath>
+import type { ScanErrorCode } from "./types";
+
+export type { GitHubRepo } from "./github-url";
+
+const GH_API = "https://api.github.com";
+
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "fixly-scanner/1.0",
+  };
+  // Server-side only — this module is never imported by client code.
+  const token = process.env.GITHUB_TOKEN;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
 }
 
-export interface ProjectFiles {
+export type FetchErrorCode = Extract<
+  ScanErrorCode,
+  "repo_not_found" | "private_repo" | "branch_not_found" | "no_package_json" | "rate_limited" | "github_error"
+>;
+
+export interface FetchedProject {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  packageJson: any | null;
+  packageJson: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   packageLock: any | null;
-  branch: string | null;
-  error?: "not_found" | "private" | "no_package_json";
+  branch: string;
+  filesFound: string[];
+  filesMissing: string[];
 }
 
-export function parseGitHubUrl(url: string): GitHubRepo | null {
+export type FetchResult =
+  | { ok: true; project: FetchedProject }
+  | { ok: false; code: FetchErrorCode; message: string };
+
+const RATE_LIMIT_MESSAGE =
+  "GitHub API rate limit reached. Set a GITHUB_TOKEN environment variable on the server to raise the limit (see docs/development.md), then try again.";
+
+interface GhResponse {
+  status: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  body: any;
+}
+
+async function ghGet(path: string): Promise<GhResponse> {
+  const res = await fetch(`${GH_API}${path}`, { headers: authHeaders() });
+  let body: unknown = null;
   try {
-    const parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
-    if (parsed.hostname !== "github.com") return null;
-
-    // pathname: /owner/repo[/tree/branch[/subpath...]]
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    if (parts.length < 2) return null;
-
-    const owner = parts[0];
-    const repo = parts[1].replace(/\.git$/, "");
-
-    // /tree/<branch>[/<subpath>]
-    if (parts[2] === "tree" && parts[3]) {
-      const branch = parts[3];
-      const subpath = parts.slice(4).join("/") || undefined;
-      return { owner, repo, branch, subpath };
-    }
-
-    return { owner, repo };
+    body = await res.json();
   } catch {
-    return null;
+    body = null;
   }
+  return { status: res.status, body };
 }
 
-const GH_HEADERS = {
-  Accept: "application/vnd.github.v3+json",
-  "User-Agent": "fixly-scanner/1.0",
-};
-
-interface ContentsApiResponse {
-  encoding?: string;
-  content?: string;
+function isRateLimited(res: GhResponse): boolean {
+  return (
+    (res.status === 403 || res.status === 429) &&
+    typeof res.body?.message === "string" &&
+    /rate limit/i.test(res.body.message)
+  );
 }
 
-/**
- * Fetch a file's content via the GitHub Contents API.
- * Returns the decoded text, or null if not found.
- * Throws "private" on 401/403 so callers can surface a clear error.
- */
-async function fetchViaContentsApi(
+type FileResult =
+  | { kind: "found"; content: string }
+  | { kind: "missing" }
+  | { kind: "rate_limited" }
+  | { kind: "error"; message: string };
+
+async function getFileContent(
   owner: string,
   repo: string,
-  path: string
-): Promise<string | null> {
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-  const res = await fetch(url, { headers: GH_HEADERS });
-
-  if (res.status === 404) return null;
-  if (res.status === 403 || res.status === 401) {
-    throw new Error("private");
+  filePath: string,
+  ref: string
+): Promise<FileResult> {
+  const res = await ghGet(
+    `/repos/${owner}/${repo}/contents/${filePath}?ref=${encodeURIComponent(ref)}`
+  );
+  if (res.status === 404) return { kind: "missing" };
+  if (isRateLimited(res)) return { kind: "rate_limited" };
+  if (res.status === 401 || res.status === 403) {
+    return { kind: "error", message: "Access to the file was forbidden." };
   }
-  if (!res.ok) {
-    throw new Error(`github_api_${res.status}`);
+  if (res.status !== 200) {
+    return { kind: "error", message: `GitHub API error (${res.status}).` };
   }
-
-  const data = (await res.json()) as ContentsApiResponse;
-
-  if (data.encoding === "base64" && typeof data.content === "string") {
-    return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf-8");
+  if (res.body?.encoding === "base64" && typeof res.body.content === "string") {
+    return {
+      kind: "found",
+      content: Buffer.from(res.body.content.replace(/\n/g, ""), "base64").toString("utf-8"),
+    };
   }
-
-  return null;
+  return { kind: "error", message: "Unexpected GitHub response while reading a file." };
 }
 
 /**
- * Fallback: fetch raw content directly (needs a known branch name).
+ * Locate and download package.json (+ optional package-lock.json) for a public
+ * repository. The repo and branch are verified up front so callers receive a
+ * precise {@link FetchErrorCode} instead of a generic "not found".
  */
-async function fetchRawFallback(
-  owner: string,
-  repo: string,
-  branch: string,
-  path: string
-): Promise<string | null> {
-  const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "fixly-scanner/1.0" },
-    });
-    if (!res.ok) return null;
-    return res.text();
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Get the default branch of a repo via the GitHub API.
- */
-async function getDefaultBranch(owner: string, repo: string): Promise<string> {
-  try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-      headers: GH_HEADERS,
-    });
-    if (!res.ok) return "main";
-    const data = (await res.json()) as { default_branch?: string };
-    return typeof data.default_branch === "string" ? data.default_branch : "main";
-  } catch {
-    return "main";
-  }
-}
-
-export async function fetchProjectFiles(
+export async function fetchProject(
   owner: string,
   repo: string,
   branchHint?: string,
   subpath?: string
-): Promise<ProjectFiles> {
-  // Prefix every file path with the subpath if one was provided
-  const filePath = (name: string) => (subpath ? `${subpath}/${name}` : name);
+): Promise<FetchResult> {
+  // 1. Repo existence / access + default branch.
+  const repoRes = await ghGet(`/repos/${owner}/${repo}`);
+  if (isRateLimited(repoRes)) return { ok: false, code: "rate_limited", message: RATE_LIMIT_MESSAGE };
+  if (repoRes.status === 404) {
+    return {
+      ok: false,
+      code: "repo_not_found",
+      message: `Repository ${owner}/${repo} was not found. Check the URL — it may not exist, or it may be private (only public repositories are supported).`,
+    };
+  }
+  if (repoRes.status === 401 || repoRes.status === 403) {
+    return {
+      ok: false,
+      code: "private_repo",
+      message: `Access to ${owner}/${repo} is forbidden. Only public repositories are supported.`,
+    };
+  }
+  if (repoRes.status !== 200) {
+    return { ok: false, code: "github_error", message: `GitHub API error (${repoRes.status}) reading ${owner}/${repo}.` };
+  }
+  const defaultBranch =
+    typeof repoRes.body?.default_branch === "string" ? repoRes.body.default_branch : "main";
 
-  // --- Try GitHub Contents API first ---
-  // If a branch was specified in the URL, use it directly; otherwise let the
-  // API pick the default branch by omitting the ref parameter.
-  let packageJsonText: string | null = null;
-  let packageLockText: string | null = null;
-
-  const apiPath = branchHint
-    ? `https://api.github.com/repos/${owner}/${repo}/contents/${filePath("package.json")}?ref=${branchHint}`
-    : null;
-
-  try {
-    if (apiPath) {
-      const res = await fetch(apiPath, { headers: GH_HEADERS });
-      if (res.status === 403 || res.status === 401) {
-        return { packageJson: null, packageLock: null, branch: null, error: "private" };
-      }
-      if (res.ok) {
-        const data = (await res.json()) as ContentsApiResponse;
-        if (data.encoding === "base64" && typeof data.content === "string") {
-          packageJsonText = Buffer.from(
-            data.content.replace(/\n/g, ""),
-            "base64"
-          ).toString("utf-8");
-        }
-      }
-    } else {
-      packageJsonText = await fetchViaContentsApi(owner, repo, filePath("package.json"));
+  // 2. Resolve branch (verify it exists if the URL specified one).
+  let branch = defaultBranch;
+  if (branchHint) {
+    const branchRes = await ghGet(
+      `/repos/${owner}/${repo}/branches/${encodeURIComponent(branchHint)}`
+    );
+    if (isRateLimited(branchRes)) return { ok: false, code: "rate_limited", message: RATE_LIMIT_MESSAGE };
+    if (branchRes.status === 404) {
+      return { ok: false, code: "branch_not_found", message: `Branch "${branchHint}" was not found in ${owner}/${repo}.` };
     }
-  } catch (err) {
-    if (err instanceof Error && err.message === "private") {
-      return { packageJson: null, packageLock: null, branch: null, error: "private" };
+    if (branchRes.status !== 200) {
+      return { ok: false, code: "github_error", message: `GitHub API error (${branchRes.status}) reading branch "${branchHint}".` };
     }
+    branch = branchHint;
   }
 
-  // --- Fallback: raw URL with common branch names ---
-  if (packageJsonText === null) {
-    const defaultBranch = await getDefaultBranch(owner, repo);
-    const candidates = [
-      branchHint,
-      defaultBranch,
-      "main",
-      "master",
-      "develop",
-      "trunk",
-    ].filter((v): v is string => Boolean(v)).filter((v, i, arr) => arr.indexOf(v) === i);
+  const dir = subpath ? `${subpath.replace(/^\/+|\/+$/g, "")}/` : "";
+  const where = subpath ? ` in subfolder "${subpath}"` : "";
 
-    for (const b of candidates) {
-      const raw = await fetchRawFallback(owner, repo, b, filePath("package.json"));
-      if (raw) {
-        try {
-          const packageJson = JSON.parse(raw);
-          const lockRaw = await fetchRawFallback(
-            owner,
-            repo,
-            b,
-            filePath("package-lock.json")
-          );
-          return {
-            packageJson,
-            packageLock: lockRaw ? JSON.parse(lockRaw) : null,
-            branch: b,
-          };
-        } catch {
-          continue;
-        }
-      }
-    }
-
-    return { packageJson: null, packageLock: null, branch: null, error: "no_package_json" };
+  // 3. package.json (required).
+  const pkg = await getFileContent(owner, repo, `${dir}package.json`, branch);
+  if (pkg.kind === "rate_limited") return { ok: false, code: "rate_limited", message: RATE_LIMIT_MESSAGE };
+  if (pkg.kind === "error") return { ok: false, code: "github_error", message: pkg.message };
+  if (pkg.kind === "missing") {
+    return {
+      ok: false,
+      code: "no_package_json",
+      message: `No package.json found in ${owner}/${repo}${where} on branch "${branch}". This may not be a Node.js project, or the file may be in a different folder.`,
+    };
   }
-
-  // --- Parse result from Contents API ---
-  let packageJson: unknown = null;
+  let packageJson: unknown;
   try {
-    packageJson = JSON.parse(packageJsonText);
+    packageJson = JSON.parse(pkg.content);
   } catch {
-    return { packageJson: null, packageLock: null, branch: null, error: "no_package_json" };
+    return { ok: false, code: "no_package_json", message: `The package.json in ${owner}/${repo} could not be parsed as JSON.` };
   }
 
-  try {
-    if (branchHint) {
-      const lockRes = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/contents/${filePath("package-lock.json")}?ref=${branchHint}`,
-        { headers: GH_HEADERS }
-      );
-      if (lockRes.ok) {
-        const data = (await lockRes.json()) as ContentsApiResponse;
-        if (data.encoding === "base64" && typeof data.content === "string") {
-          packageLockText = Buffer.from(
-            data.content.replace(/\n/g, ""),
-            "base64"
-          ).toString("utf-8");
-        }
-      }
-    } else {
-      packageLockText = await fetchViaContentsApi(
-        owner,
-        repo,
-        filePath("package-lock.json")
-      );
-    }
-  } catch {
-    packageLockText = null;
-  }
-
-  let packageLock = null;
-  if (packageLockText) {
+  // 4. package-lock.json (optional).
+  const filesFound = ["package.json"];
+  const filesMissing: string[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let packageLock: any = null;
+  const lock = await getFileContent(owner, repo, `${dir}package-lock.json`, branch);
+  if (lock.kind === "found") {
     try {
-      packageLock = JSON.parse(packageLockText);
+      packageLock = JSON.parse(lock.content);
+      filesFound.push("package-lock.json");
     } catch {
-      // malformed lock file — ignore
+      filesMissing.push("package-lock.json");
     }
+  } else {
+    filesMissing.push("package-lock.json");
   }
 
-  return { packageJson, packageLock, branch: branchHint ?? null };
+  return { ok: true, project: { packageJson, packageLock, branch, filesFound, filesMissing } };
 }

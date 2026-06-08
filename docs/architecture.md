@@ -8,9 +8,9 @@ Fixly is a pnpm + Turborepo workspace. One shared scanner package is consumed by
                          │  (no React / DOM / Next)    │
                          │                             │
    GitHub repo URL  ─────┤ runScan(repoUrl)            │
-                         │   └─ fetchProjectFiles ──┐  │
+                         │   └─ fetchProject ───────┐  │
                          │                          ▼  │
-   local files      ─────┤ scanProjectFiles ──► parsePackages ──► queryOsvBatch ──► normalize ──► sortBySeverity
+   local files      ─────┤ scanProjectFiles ──► parseDependencies ──► queryOsvBatch ──► normalize ──► sortBySeverity
                          │                                                                         │
                          └──────────────────────────────────────────────────────────────────────┘
                                           │                                   │
@@ -35,14 +35,19 @@ Fixly is a pnpm + Turborepo workspace. One shared scanner package is consumed by
 ## Core data flow
 
 1. **Acquire manifests.**
-   - Web: `runScan(repoUrl)` → `parseGitHubUrl` → `fetchProjectFiles` downloads `package.json` /
-     `package-lock.json` (GitHub Contents API, with a raw.githubusercontent.com fallback across
-     candidate branches). Unauthenticated, so subject to GitHub rate limits; 401/403 → "private".
-   - Extension: reads the same two files from the open workspace folder.
-2. **Resolve dependencies.** `parsePackages` takes the direct `dependencies` + `devDependencies`
-   and resolves each to a concrete version, preferring the lock file (v1 `dependencies`, v2/v3
-   top-level `packages`). It returns `{ packages, warnings }` — warnings cover a missing lock file
-   and unresolvable version ranges (`*`, dist-tags, …), which are skipped.
+   - Web: `runScan(repoUrl)` → `parseGitHubUrl` → `fetchProject`. `fetchProject` verifies the repo
+     and (if given) the branch up front via the GitHub REST API, then downloads `package.json` and
+     `package-lock.json`. It returns a discriminated `FetchResult`: on failure a precise code
+     (`repo_not_found`, `private_repo`, `branch_not_found`, `no_package_json`, `rate_limited`,
+     `github_error`); on success the files plus the resolved branch and `filesFound`/`filesMissing`.
+     Requests use an optional, server-side-only `GITHUB_TOKEN`.
+   - Extension: reads the same two files from the open workspace folder and records found/missing.
+2. **Resolve dependencies.** `parseDependencies` takes the direct `dependencies` + `devDependencies`
+   and returns normalized `DependencyEntry` objects — `name`, `requestedVersion` (the range),
+   `installedVersion` (exact from the lock file, or `null`), `dependencyType`, `sourceFile` — plus
+   warnings (missing lock file, unresolvable ranges). `resolveCheckVersion(entry)` picks the version
+   to check against OSV: the lock version, else the resolved minimum of the range; unresolvable
+   specifiers (`*`, `latest`, npm aliases, git/url) are skipped and warned, never invented.
 3. **Query OSV.** `queryOsvBatch` POSTs to `/querybatch` (ecosystem hardcoded `npm`) to find which
    packages are vulnerable, then fetches full records from `/vulns/{id}`. Returns `{ results,
    warnings }`; warnings note any detail lookups that failed.
@@ -51,8 +56,10 @@ Fixly is a pnpm + Turborepo workspace. One shared scanner package is consumed by
    base score (`cvssV3BaseScore`) → per-`affected` severity fields → `unknown`. It also extracts the
    fix version and the `CVE-` alias.
 5. **Assemble.** `scanProjectFiles` sorts findings by severity (critical → unknown) and returns a
-   `ScanResult` carrying `totalPackages`, `vulnerabilities`, and the accumulated `warnings`
-   (plus an `error` string when the scan could not complete).
+   `ScanResult` carrying `dependencies`, `totalPackages` (declared) and `resolvedPackages`
+   (checked), `vulnerabilities`, a `target` (owner/repo, branch used, subpath, files found/missing),
+   accumulated `warnings`, and a structured `error` (`{ code, message }`) when the scan could not
+   complete. The web `/api/scan` route maps each error code to an HTTP status.
 
 `runScan` (remote) and `scanProjectFiles` (already-loaded files) share steps 2–5 — the extension and
 web app produce identical reports for the same inputs.

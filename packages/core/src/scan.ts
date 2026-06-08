@@ -1,8 +1,14 @@
-import { parseGitHubUrl, fetchProjectFiles } from "./github";
-import { parsePackages } from "./parse-packages";
+import { parseGitHubUrl } from "./github-url";
+import { fetchProject } from "./github";
+import { parseDependencies, resolveCheckVersion } from "./parse-packages";
 import { queryOsvBatch } from "./osv";
 import { normalizeOsvResults } from "./normalize";
-import type { ScanResult, ScanVulnerability, Severity } from "./types";
+import type {
+  ScanResult,
+  ScanTarget,
+  ScanVulnerability,
+  Severity,
+} from "./types";
 
 const SEVERITY_ORDER: Record<Severity, number> = {
   critical: 0,
@@ -21,6 +27,18 @@ export function sortBySeverity(
   );
 }
 
+function emptyTarget(partial: Partial<ScanTarget> = {}): ScanTarget {
+  return {
+    owner: null,
+    repo: null,
+    branch: null,
+    subpath: null,
+    filesFound: [],
+    filesMissing: [],
+    ...partial,
+  };
+}
+
 export interface ScanProjectFilesInput {
   /** Parsed package.json object. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,8 +46,10 @@ export interface ScanProjectFilesInput {
   /** Parsed package-lock.json object, if available. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   packageLock?: any | null;
-  /** Label for the scanned project (repo URL, folder name, etc.). */
+  /** Display label for the scanned project (repo URL, folder name, etc.). */
   repo: string;
+  /** What/where was scanned (files found, branch, owner/repo, subpath). */
+  target?: ScanTarget;
   /** Override the scan timestamp (defaults to now). */
   scannedAt?: string;
 }
@@ -43,46 +63,80 @@ export async function scanProjectFiles(
   input: ScanProjectFilesInput
 ): Promise<ScanResult> {
   const scannedAt = input.scannedAt ?? new Date().toISOString();
-  const base = { repo: input.repo, scannedAt, source: "osv" as const };
+  const target = input.target ?? emptyTarget();
+  const base = { repo: input.repo, target, scannedAt, source: "osv" as const };
 
-  const { packages, warnings } = parsePackages(
+  const { dependencies, warnings } = parseDependencies(
     input.packageJson,
     input.packageLock ?? null
   );
 
-  if (packages.length === 0) {
+  if (dependencies.length === 0) {
     return {
       ...base,
+      dependencies,
       totalPackages: 0,
+      resolvedPackages: 0,
       vulnerabilities: [],
       warnings,
-      error: "No resolvable packages found in package.json.",
+      error: {
+        code: "no_dependencies",
+        message: "No dependencies or devDependencies were found in package.json.",
+      },
+    };
+  }
+
+  // Build the set of (name, concrete version) pairs to check against OSV.
+  const checkable = dependencies
+    .map((entry) => ({ name: entry.name, version: resolveCheckVersion(entry) }))
+    .filter((q): q is { name: string; version: string } => q.version !== null);
+
+  if (checkable.length === 0) {
+    return {
+      ...base,
+      dependencies,
+      totalPackages: dependencies.length,
+      resolvedPackages: 0,
+      vulnerabilities: [],
+      warnings,
+      error: {
+        code: "no_dependencies",
+        message: "No dependency versions could be resolved to check against OSV.",
+      },
     };
   }
 
   let osv;
   try {
-    osv = await queryOsvBatch(packages);
+    osv = await queryOsvBatch(checkable);
   } catch (err) {
     return {
       ...base,
-      totalPackages: packages.length,
+      dependencies,
+      totalPackages: dependencies.length,
+      resolvedPackages: checkable.length,
       vulnerabilities: [],
       warnings,
-      error: `OSV query failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      error: {
+        code: "osv_failed",
+        message: `OSV query failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      },
     };
   }
 
+  const versionByName = new Map(checkable.map((q) => [q.name, q.version]));
   const vulnerabilities: ScanVulnerability[] = [];
   for (const [pkgName, vulns] of osv.results.entries()) {
-    const pkg = packages.find((p) => p.name === pkgName);
-    if (!pkg) continue;
-    vulnerabilities.push(...normalizeOsvResults(pkgName, pkg.version, vulns));
+    const version = versionByName.get(pkgName);
+    if (!version) continue;
+    vulnerabilities.push(...normalizeOsvResults(pkgName, version, vulns));
   }
 
   return {
     ...base,
-    totalPackages: packages.length,
+    dependencies,
+    totalPackages: dependencies.length,
+    resolvedPackages: checkable.length,
     vulnerabilities: sortBySeverity(vulnerabilities),
     warnings: [...warnings, ...osv.warnings],
   };
@@ -90,45 +144,69 @@ export async function scanProjectFiles(
 
 /**
  * Scan a public GitHub repository: parse the URL, fetch its manifest files,
- * then run the shared {@link scanProjectFiles} pipeline.
+ * then run the shared {@link scanProjectFiles} pipeline. All failure modes are
+ * returned as a structured {@link ScanResult.error}.
  */
 export async function runScan(repoUrl: string): Promise<ScanResult> {
   const scannedAt = new Date().toISOString();
-  const base = { repo: repoUrl, scannedAt, source: "osv" as const };
-
   const parsed = parseGitHubUrl(repoUrl);
+
   if (!parsed) {
     return {
-      ...base,
+      repo: repoUrl,
+      target: emptyTarget(),
+      scannedAt,
+      source: "osv",
+      dependencies: [],
       totalPackages: 0,
+      resolvedPackages: 0,
       vulnerabilities: [],
       warnings: [],
-      error:
-        "Invalid GitHub URL. Please use a public github.com repository URL (e.g. https://github.com/owner/repo).",
+      error: {
+        code: "invalid_url",
+        message:
+          "Invalid GitHub URL. Use a public github.com repository URL, e.g. https://github.com/owner/repo.",
+      },
     };
   }
 
-  const { owner, repo, branch, subpath } = parsed;
-  const { packageJson, packageLock, error } = await fetchProjectFiles(
-    owner,
-    repo,
-    branch,
-    subpath
-  );
+  const fetched = await fetchProject(parsed.owner, parsed.repo, parsed.branch, parsed.subpath);
 
-  if (!packageJson) {
-    const msg =
-      error === "private"
-        ? `${owner}/${repo} is private or requires authentication. Only public repositories are supported.`
-        : `No package.json found in ${owner}/${repo}. This may not be a Node.js project, or the file may be in a subdirectory.`;
+  if (!fetched.ok) {
     return {
-      ...base,
+      repo: repoUrl,
+      target: emptyTarget({
+        owner: parsed.owner,
+        repo: parsed.repo,
+        branch: parsed.branch ?? null,
+        subpath: parsed.subpath ?? null,
+        filesMissing: ["package.json"],
+      }),
+      scannedAt,
+      source: "osv",
+      dependencies: [],
       totalPackages: 0,
+      resolvedPackages: 0,
       vulnerabilities: [],
       warnings: [],
-      error: msg,
+      error: { code: fetched.code, message: fetched.message },
     };
   }
 
-  return scanProjectFiles({ packageJson, packageLock, repo: repoUrl, scannedAt });
+  const { packageJson, packageLock, branch, filesFound, filesMissing } = fetched.project;
+
+  return scanProjectFiles({
+    packageJson,
+    packageLock,
+    repo: repoUrl,
+    scannedAt,
+    target: {
+      owner: parsed.owner,
+      repo: parsed.repo,
+      branch,
+      subpath: parsed.subpath ?? null,
+      filesFound,
+      filesMissing,
+    },
+  });
 }

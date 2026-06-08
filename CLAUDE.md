@@ -44,22 +44,22 @@ curl -X POST localhost:3000/api/scan -H "Content-Type: application/json" \
 
 Public API in [packages/core/src/index.ts](packages/core/src/index.ts). Pipeline:
 
-1. [github.ts](packages/core/src/github.ts) `parseGitHubUrl()` (`/owner/repo` and `/tree/<branch>/<subpath>`) and `fetchProjectFiles()` — GitHub Contents API first, then raw.githubusercontent.com across candidate branches. **Unauthenticated** (~60 req/hr); 401/403 → "private" error.
-2. [parse-packages.ts](packages/core/src/parse-packages.ts) `parsePackages()` — direct `dependencies` + `devDependencies` only; resolves versions from package-lock.json (v1/v2/v3, **top-level only, no transitive**). Returns `{ packages, warnings }`.
+1. [github-url.ts](packages/core/src/github-url.ts) `parseGitHubUrl()` — pure URL parsing (`/owner/repo`, `/tree/<branch>/<subpath>`), also exported at `@fixly/core/url` for **client-safe** import (no Node deps). [github.ts](packages/core/src/github.ts) `fetchProject()` — verifies repo + branch via the GitHub REST API and returns a discriminated `FetchResult` with precise error codes; uses an optional **server-side** `GITHUB_TOKEN` (~60→5000 req/hr).
+2. [parse-packages.ts](packages/core/src/parse-packages.ts) `parseDependencies()` — direct `dependencies` + `devDependencies` only → `DependencyEntry[]` (`requestedVersion`, lock-exact `installedVersion`, `dependencyType`, `sourceFile`) + warnings; lock v1/v2/v3, **top-level only, no transitive**. `resolveCheckVersion()` = lock version ?? range minimum; unresolvable specifiers (`*`, `latest`, npm aliases) are skipped + warned, never invented.
 3. [osv.ts](packages/core/src/osv.ts) `queryOsvBatch()` — POST `/querybatch` (ecosystem hardcoded `"npm"`) → GET `/vulns/{id}`. Returns `{ results, warnings }`.
 4. [normalize.ts](packages/core/src/normalize.ts) `normalizeOsvResults()` — severity priority: `database_specific.severity` → locally-computed **CVSS v3.1 base score** (`cvssV3BaseScore()`) → per-`affected` → `"unknown"`.
 5. [scan.ts](packages/core/src/scan.ts):
    - `scanProjectFiles({ packageJson, packageLock, repo })` — shared core: parse → OSV → normalize → `sortBySeverity` (critical→unknown). **Both apps call this.**
    - `runScan(repoUrl)` — fetches files from GitHub, then delegates to `scanProjectFiles`. Used by the web app.
 
-`ScanResult` (in [types.ts](packages/core/src/types.ts)) now always has a `warnings: string[]`. `Severity` includes `"unknown"`. Core has no React/DOM/Next imports — it must keep running in both the Next server and the VS Code (Node) extension host.
+`ScanResult` (in [types.ts](packages/core/src/types.ts)) carries `dependencies`, `totalPackages` (declared) + `resolvedPackages` (checked), a `target` (owner/repo, branch used, subpath, `filesFound`/`filesMissing`), `warnings: string[]`, and a structured `error?: { code: ScanErrorCode; message }`. `Severity` includes `"unknown"`. Core has no React/DOM/Next imports — it must keep running in both the Next server and the VS Code (Node) extension host.
 
 ### apps/web (`@fixly/web`)
 
-- [components/ScanForm.tsx](apps/web/components/ScanForm.tsx) (client) → pushes to `/dashboard/results?repo=<url>`.
+- [components/ScanForm.tsx](apps/web/components/ScanForm.tsx) (client) — validates with `parseGitHubUrl` from `@fixly/core/url`, then pushes to `/dashboard/results?repo=<url>`.
 - [app/dashboard/results/page.tsx](apps/web/app/dashboard/results/page.tsx) — async **Server Component** calls `runScan(repo)` from `@fixly/core`. [loading.tsx](apps/web/app/dashboard/results/loading.tsx) is the Suspense spinner. Shows summary, a warnings panel, the findings table, and raw JSON.
 - [app/dashboard/page.tsx](apps/web/app/dashboard/page.tsx) — the honest scanner home (form + scope note). **No mock data, no fake projects/scans, no dead links** (the old mock dashboard was removed in the workspace refactor).
-- [app/api/scan/route.ts](apps/web/app/api/scan/route.ts) — `POST {repoUrl}` → `runScan`; programmatic entry, not used by the UI.
+- [app/api/scan/route.ts](apps/web/app/api/scan/route.ts) — `POST {repoUrl}` → `runScan`; maps structured error codes to HTTP status. Programmatic entry, not used by the UI.
 - [app/page.tsx](apps/web/app/page.tsx) — marketing landing.
 - Consumes `@fixly/core`/`@fixly/ui` as **source** via `transpilePackages` in [next.config.ts](apps/web/next.config.ts). Tailwind scans the UI package via an `@source` directive in [app/globals.css](apps/web/app/globals.css).
 
