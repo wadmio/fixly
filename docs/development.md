@@ -21,6 +21,9 @@ Fixly runs with no environment variables. One is optional:
   - Web app: copy `.env.example` to `apps/web/.env.local` and set the value.
   - Validation / extension host: export `GITHUB_TOKEN` in your shell.
   - It is read by `@fixly/core` on the server and is never sent to the browser.
+- **`FIXLY_DISABLE_SCAN_CACHE`** — set to `1` to disable the in-memory scan cache
+  (repeated same-URL scans are otherwise served from a 5-minute, per-process cache
+  during development/demo).
 
 ## Workspace tasks (from the repo root)
 

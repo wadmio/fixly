@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 const features = [
   {
@@ -63,7 +64,7 @@ export default function LandingPage() {
       {/* Navbar */}
       <header className="sticky top-0 z-10 border-b border-[#D1D5DB]/10 bg-[#0A0A0A]/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-          <img src="/fixly_logo.svg" alt="Fixly" className="h-6 w-auto" />
+          <Image src="/fixly_logo.svg" alt="Fixly" width={640} height={180} className="h-6 w-auto" unoptimized />
           <nav className="flex items-center gap-6">
             <a href="#how-it-works" className="text-sm text-[#BFC3C7] hover:text-white transition-colors">
               How it works
@@ -93,7 +94,7 @@ export default function LandingPage() {
         {/* Hero */}
         <section className="mx-auto max-w-6xl px-6 pb-24 pt-20 text-center">
           <div className="flex justify-center mb-10">
-            <img src="/fixly_logo.svg" alt="Fixly" className="h-20 w-auto" />
+            <Image src="/fixly_logo.svg" alt="Fixly" width={640} height={180} className="h-20 w-auto" unoptimized />
           </div>
 
           <div className="inline-flex items-center gap-2 rounded-full border border-[#D1D5DB]/20 bg-[#1A1A1A] px-3 py-1 text-xs font-medium text-[#BFC3C7] mb-8">

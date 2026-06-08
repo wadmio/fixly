@@ -74,3 +74,16 @@ web app produce identical reports for the same inputs.
 - **`node-linker=hoisted`.** Next.js/Turbopack needs some transitive deps (`postcss`, `scheduler`)
   resolvable from `apps/web`. A hoisted node_modules layout (`.npmrc`) keeps that working on pnpm.
 - **OSV only.** `ScanResult.source` is hardcoded `"osv"`. NVD is intentionally not implemented.
+
+## Reliability
+
+- **Retry + backoff** ([http.ts](../packages/core/src/http.ts) `fetchWithRetry`) — GitHub and OSV
+  requests retry transient failures (network errors, 429/5xx) with exponential backoff + jitter,
+  honoring `Retry-After`. Definitive responses (404/403) are not retried.
+- **Bounded OSV concurrency** (`mapWithConcurrency`) — at most 8 vulnerability-detail requests run
+  at once.
+- **In-memory scan cache** ([cache.ts](../packages/core/src/cache.ts)) — `runScan` returns a cached
+  result for the same URL within a 5-minute TTL (per process; dev/demo). Disable with
+  `FIXLY_DISABLE_SCAN_CACHE=1`; clear via `clearScanCache()`.
+- **Rate-limit warning** — `fetchProject` adds a warning when GitHub's remaining quota is low and no
+  `GITHUB_TOKEN` is set.

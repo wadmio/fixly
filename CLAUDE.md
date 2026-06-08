@@ -76,6 +76,8 @@ Public API in [packages/core/src/index.ts](packages/core/src/index.ts). Pipeline
 - **TS config:** packages extend [tsconfig.base.json](tsconfig.base.json) (strict, `noUnusedLocals/Parameters`). `@fixly/core` keeps `lib: ES2022` + `@types/node` (uses global `fetch`/`Buffer`) — **don't reintroduce `cache: "no-store"`** on fetch (not in Node's `RequestInit`; Next 15+ is uncached by default anyway).
 - **ESLint:** `apps/web` uses `eslint-config-next`; other packages re-export [eslint.config.base.mjs](eslint.config.base.mjs).
 - **Severity colors** live once in [packages/ui/src/severity.ts](packages/ui/src/severity.ts); use `<Badge>` from `@fixly/ui`. Web uses hardcoded hex Tailwind literals (`bg-[#0A0A0A]`, `text-[#BFC3C7]`) — match that.
+- **Network reliability** ([http.ts](packages/core/src/http.ts)): GitHub/OSV calls go through `fetchWithRetry` (backoff + jitter, retries 429/5xx/network, not 404/403); OSV detail fetches are capped at 8 via `mapWithConcurrency`; `runScan` caches results in-memory ([cache.ts](packages/core/src/cache.ts), 5-min TTL, `clearScanCache()`, `FIXLY_DISABLE_SCAN_CACHE=1` to disable). CI: [.github/workflows/ci.yml](.github/workflows/ci.yml) runs install --frozen-lockfile, lint, typecheck, test, build on PRs (Node 20).
+- **Web tests** (`apps/web`) run in Vitest **node** env — full React DOM rendering under Vitest is currently broken in this toolchain (react/react-dom dual-instance), so scan-page coverage is module-load + URL-gate logic; use Playwright for real page rendering. Core tests are the main suite.
 
 ## Scope guardrails (by design — don't "fix" without being asked)
 

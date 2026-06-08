@@ -3,6 +3,7 @@ import { fetchProject } from "./github";
 import { parseDependencies, resolveCheckVersion } from "./parse-packages";
 import { queryOsvBatch } from "./osv";
 import { normalizeOsvResults } from "./normalize";
+import { getCachedScan, setCachedScan } from "./cache";
 import type {
   ScanResult,
   ScanTarget,
@@ -148,6 +149,13 @@ export async function scanProjectFiles(
  * returned as a structured {@link ScanResult.error}.
  */
 export async function runScan(repoUrl: string): Promise<ScanResult> {
+  const cacheKey = repoUrl.trim();
+  const cacheEnabled = process.env.FIXLY_DISABLE_SCAN_CACHE !== "1";
+  if (cacheEnabled) {
+    const cached = getCachedScan(cacheKey);
+    if (cached) return cached;
+  }
+
   const scannedAt = new Date().toISOString();
   const parsed = parseGitHubUrl(repoUrl);
 
@@ -193,9 +201,10 @@ export async function runScan(repoUrl: string): Promise<ScanResult> {
     };
   }
 
-  const { packageJson, packageLock, branch, filesFound, filesMissing } = fetched.project;
+  const { packageJson, packageLock, branch, filesFound, filesMissing, warnings } =
+    fetched.project;
 
-  return scanProjectFiles({
+  const result = await scanProjectFiles({
     packageJson,
     packageLock,
     repo: repoUrl,
@@ -209,4 +218,12 @@ export async function runScan(repoUrl: string): Promise<ScanResult> {
       filesMissing,
     },
   });
+
+  // Prepend fetch-stage advisories (e.g. low rate limit) to the scan warnings.
+  const merged = warnings.length
+    ? { ...result, warnings: [...warnings, ...result.warnings] }
+    : result;
+
+  if (cacheEnabled && !merged.error) setCachedScan(cacheKey, merged);
+  return merged;
 }
