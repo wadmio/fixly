@@ -61,7 +61,7 @@ export default async function ResultsPage(props: {
       {result.error ? (
         <div className="space-y-6">
           <div className="rounded-xl border border-red-900 bg-red-950/20 px-6 py-5">
-            <p className="text-sm font-medium text-red-400">{result.error}</p>
+            <p className="text-sm font-medium text-red-400">{result.error.message}</p>
           </div>
           <div className="rounded-xl border border-[#D1D5DB]/10 bg-[#1A1A1A] p-6">
             <p className="mb-4 text-sm text-[#BFC3C7]">Try a different repository:</p>

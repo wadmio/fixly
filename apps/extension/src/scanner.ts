@@ -49,7 +49,12 @@ export async function scanWorkspace(
     vscode.Uri.joinPath(folder.uri, "package-lock.json"),
     log
   );
-  if (!packageLock) {
+  const filesFound = ["package.json"];
+  const filesMissing: string[] = [];
+  if (packageLock) {
+    filesFound.push("package-lock.json");
+  } else {
+    filesMissing.push("package-lock.json");
     log("No package-lock.json found; resolving versions from package.json ranges.");
   }
 
@@ -58,6 +63,14 @@ export async function scanWorkspace(
     packageJson,
     packageLock,
     repo: folder.name,
+    target: {
+      owner: null,
+      repo: folder.name,
+      branch: null,
+      subpath: null,
+      filesFound,
+      filesMissing,
+    },
   });
   log(
     `Scan complete: ${result.vulnerabilities.length} vulnerabilities across ${result.totalPackages} packages.`

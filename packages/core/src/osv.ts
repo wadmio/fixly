@@ -1,6 +1,9 @@
-import type { PackageEntry } from "./types";
-
 const OSV_BASE = "https://api.osv.dev/v1";
+
+export interface OsvQuery {
+  name: string;
+  version: string;
+}
 
 export interface OsvSeverity {
   type: string;
@@ -37,22 +40,20 @@ export interface OsvVuln {
 // ---------------------------------------------------------------------------
 // Step 1 — querybatch: find which packages have vulns and collect their IDs
 // ---------------------------------------------------------------------------
-async function batchQueryIds(
-  packages: PackageEntry[]
-): Promise<Map<string, string[]>> {
+async function batchQueryIds(queries: OsvQuery[]): Promise<Map<string, string[]>> {
   const idsByPackage = new Map<string, string[]>();
 
   const CHUNK = 999;
-  for (let i = 0; i < packages.length; i += CHUNK) {
-    const chunk = packages.slice(i, i + CHUNK);
+  for (let i = 0; i < queries.length; i += CHUNK) {
+    const chunk = queries.slice(i, i + CHUNK);
 
     const res = await fetch(`${OSV_BASE}/querybatch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        queries: chunk.map((pkg) => ({
-          package: { name: pkg.name, ecosystem: "npm" },
-          version: pkg.version,
+        queries: chunk.map((q) => ({
+          package: { name: q.name, ecosystem: "npm" },
+          version: q.version,
         })),
       }),
     });
@@ -87,13 +88,11 @@ async function fetchVulnById(id: string): Promise<OsvVuln | null> {
   }
 }
 
-async function fetchAllVulnDetails(
-  ids: string[]
-): Promise<Map<string, OsvVuln>> {
+async function fetchAllVulnDetails(ids: string[]): Promise<Map<string, OsvVuln>> {
   const details = new Map<string, OsvVuln>();
   if (ids.length === 0) return details;
 
-  // Fetch all in parallel — typical repos have < 50 unique vulns
+  // Fetch all in parallel — typical repos have < 50 unique vulns.
   const settled = await Promise.allSettled(
     ids.map((id) => fetchVulnById(id).then((v) => ({ id, v })))
   );
@@ -117,20 +116,11 @@ export interface OsvQueryResult {
   warnings: string[];
 }
 
-export async function queryOsvBatch(
-  packages: PackageEntry[]
-): Promise<OsvQueryResult> {
-  if (packages.length === 0) return { results: new Map(), warnings: [] };
+export async function queryOsvBatch(queries: OsvQuery[]): Promise<OsvQueryResult> {
+  if (queries.length === 0) return { results: new Map(), warnings: [] };
 
-  // 1. Identify which packages have vulns (returns IDs only)
-  const idsByPackage = await batchQueryIds(packages);
-
-  // 2. Collect unique IDs across all packages
-  const uniqueIds = [
-    ...new Set([...idsByPackage.values()].flat()),
-  ];
-
-  // 3. Fetch full details for each unique vuln
+  const idsByPackage = await batchQueryIds(queries);
+  const uniqueIds = [...new Set([...idsByPackage.values()].flat())];
   const details = await fetchAllVulnDetails(uniqueIds);
 
   const warnings: string[] = [];
@@ -141,7 +131,6 @@ export async function queryOsvBatch(
     );
   }
 
-  // 4. Re-map full vulns back to their packages
   const results = new Map<string, OsvVuln[]>();
   for (const [pkgName, ids] of idsByPackage) {
     const vulns = ids
