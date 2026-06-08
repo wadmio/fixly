@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 
 const nav = [
@@ -23,7 +24,7 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="flex h-14 items-center border-b border-[#D1D5DB]/10 px-4">
         <Link href="/">
-          <img src="/fixly_logo.svg" alt="Fixly" className="h-14 w-auto" />
+          <Image src="/fixly_logo.svg" alt="Fixly" width={640} height={180} className="h-14 w-auto" unoptimized />
         </Link>
       </div>
 

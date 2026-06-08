@@ -20,6 +20,10 @@ export type { OsvVuln, OsvQuery, OsvQueryResult } from "./osv";
 
 export { normalizeOsvResults } from "./normalize";
 
+export { clearScanCache } from "./cache";
+export { fetchWithRetry, mapWithConcurrency } from "./http";
+export type { RetryOptions } from "./http";
+
 export type {
   Severity,
   DependencyType,
