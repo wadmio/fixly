@@ -1,6 +1,9 @@
 import type { ScanErrorCode } from "./types";
+import { fetchWithRetry } from "./http";
 
 export type { GitHubRepo } from "./github-url";
+
+const LOW_RATE_LIMIT_THRESHOLD = 10;
 
 const GH_API = "https://api.github.com";
 
@@ -28,6 +31,8 @@ export interface FetchedProject {
   branch: string;
   filesFound: string[];
   filesMissing: string[];
+  /** Non-fatal advisories from fetching (e.g. GitHub rate limit running low). */
+  warnings: string[];
 }
 
 export type FetchResult =
@@ -41,17 +46,21 @@ interface GhResponse {
   status: number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   body: any;
+  /** Remaining requests in the current rate-limit window, if reported. */
+  remaining: number | null;
 }
 
 async function ghGet(path: string): Promise<GhResponse> {
-  const res = await fetch(`${GH_API}${path}`, { headers: authHeaders() });
+  const res = await fetchWithRetry(`${GH_API}${path}`, { headers: authHeaders() });
   let body: unknown = null;
   try {
     body = await res.json();
   } catch {
     body = null;
   }
-  return { status: res.status, body };
+  const header = res.headers?.get?.("x-ratelimit-remaining");
+  const remaining = header != null ? Number(header) : NaN;
+  return { status: res.status, body, remaining: Number.isNaN(remaining) ? null : remaining };
 }
 
 function isRateLimited(res: GhResponse): boolean {
@@ -105,6 +114,8 @@ export async function fetchProject(
   branchHint?: string,
   subpath?: string
 ): Promise<FetchResult> {
+  const warnings: string[] = [];
+
   // 1. Repo existence / access + default branch.
   const repoRes = await ghGet(`/repos/${owner}/${repo}`);
   if (isRateLimited(repoRes)) return { ok: false, code: "rate_limited", message: RATE_LIMIT_MESSAGE };
@@ -127,6 +138,16 @@ export async function fetchProject(
   }
   const defaultBranch =
     typeof repoRes.body?.default_branch === "string" ? repoRes.body.default_branch : "main";
+
+  if (
+    repoRes.remaining !== null &&
+    repoRes.remaining <= LOW_RATE_LIMIT_THRESHOLD &&
+    !process.env.GITHUB_TOKEN
+  ) {
+    warnings.push(
+      `GitHub API rate limit is low (${repoRes.remaining} request(s) left). Set GITHUB_TOKEN to avoid interruptions.`
+    );
+  }
 
   // 2. Resolve branch (verify it exists if the URL specified one).
   let branch = defaultBranch;
@@ -182,5 +203,8 @@ export async function fetchProject(
     filesMissing.push("package-lock.json");
   }
 
-  return { ok: true, project: { packageJson, packageLock, branch, filesFound, filesMissing } };
+  return {
+    ok: true,
+    project: { packageJson, packageLock, branch, filesFound, filesMissing, warnings },
+  };
 }

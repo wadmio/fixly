@@ -87,3 +87,63 @@ alongside the success path.
 pnpm validate          # runs scripts/validate.ts against the cases above
 pnpm --filter @fixly/core test   # unit tests (no network)
 ```
+
+## Reliability behavior
+
+- **Retry with backoff** — GitHub and OSV requests retry transient failures
+  (network errors, 429/5xx) with exponential backoff + jitter (`fetchWithRetry`).
+- **OSV concurrency limit** — per-vulnerability detail lookups run at most 8 at a
+  time (`mapWithConcurrency`), so vuln-heavy repos don't fan out hundreds of calls.
+- **In-memory scan cache** — repeated scans of the same URL return the previous
+  result within a 5-minute TTL (per process; dev/demo only). Disable with
+  `FIXLY_DISABLE_SCAN_CACHE=1`.
+- **Rate-limit warning** — when GitHub's remaining quota is low and no
+  `GITHUB_TOKEN` is set, a warning is added to the report.
+
+## Outputs (raw `pnpm validate`, 2026-06-07)
+
+Run with `FIXLY_DISABLE_SCAN_CACHE=1` to force fresh scans (post-reliability changes):
+
+```text
+=== vulnerable repo ===
+url:     https://github.com/OWASP/NodeGoat
+target:  OWASP/NodeGoat branch=master found=[package.json, package-lock.json] missing=[]
+deps:    total=36 resolved=36
+vulns:   total=17 (C1 H10 M5 L1 U0)
+
+=== small / low-finding repo ===
+url:     https://github.com/sindresorhus/slugify
+target:  sindresorhus/slugify branch=main found=[package.json] missing=[package-lock.json]
+deps:    total=4 resolved=4
+vulns:   total=0 (C0 H0 M0 L0 U0)
+warning: No package-lock.json found. ... results may be approximate.
+
+=== invalid URL ===
+url:     not-a-real-url
+error:   invalid_url — Invalid GitHub URL. Use a public github.com repository URL ...
+
+=== non-GitHub URL ===
+url:     https://gitlab.com/foo/bar
+error:   invalid_url — Invalid GitHub URL ...
+
+=== repo not found ===
+url:     https://github.com/wadmio/this-repo-does-not-exist-zzz
+error:   repo_not_found — Repository ... was not found ...
+
+=== missing package.json ===
+url:     https://github.com/github/gitignore
+error:   no_package_json — No package.json found in github/gitignore on branch "main" ...
+
+=== branch + subpath ===
+url:     https://github.com/vercel/next.js/tree/canary/packages/next
+target:  vercel/next.js branch=canary found=[package.json] missing=[package-lock.json]
+deps:    total=229 resolved=219
+vulns:   total=21 (C0 H10 M4 L7 U0)
+warning: No package-lock.json found ...
+warning: Could not determine a version to check for 10 package(s): ... These were skipped.
+```
+
+> Image screenshots of the web report and the VS Code webview can be added here;
+> the textual outputs above are the canonical proof and are reproducible via
+> `pnpm validate`.
+

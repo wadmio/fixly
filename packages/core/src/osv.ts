@@ -1,4 +1,10 @@
+import { fetchWithRetry, mapWithConcurrency } from "./http";
+
 const OSV_BASE = "https://api.osv.dev/v1";
+
+// Cap concurrent detail requests so a vuln-heavy repo doesn't fan out hundreds
+// of simultaneous calls to OSV.
+const OSV_DETAIL_CONCURRENCY = 8;
 
 export interface OsvQuery {
   name: string;
@@ -47,7 +53,7 @@ async function batchQueryIds(queries: OsvQuery[]): Promise<Map<string, string[]>
   for (let i = 0; i < queries.length; i += CHUNK) {
     const chunk = queries.slice(i, i + CHUNK);
 
-    const res = await fetch(`${OSV_BASE}/querybatch`, {
+    const res = await fetchWithRetry(`${OSV_BASE}/querybatch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -80,7 +86,7 @@ async function batchQueryIds(queries: OsvQuery[]): Promise<Map<string, string[]>
 // ---------------------------------------------------------------------------
 async function fetchVulnById(id: string): Promise<OsvVuln | null> {
   try {
-    const res = await fetch(`${OSV_BASE}/vulns/${id}`);
+    const res = await fetchWithRetry(`${OSV_BASE}/vulns/${id}`);
     if (!res.ok) return null;
     return (await res.json()) as OsvVuln;
   } catch {
@@ -92,16 +98,15 @@ async function fetchAllVulnDetails(ids: string[]): Promise<Map<string, OsvVuln>>
   const details = new Map<string, OsvVuln>();
   if (ids.length === 0) return details;
 
-  // Fetch all in parallel — typical repos have < 50 unique vulns.
-  const settled = await Promise.allSettled(
-    ids.map((id) => fetchVulnById(id).then((v) => ({ id, v })))
+  // Bounded concurrency — typical repos have < 50 unique vulns, but cap the
+  // fan-out so large ones don't hammer OSV.
+  const fetched = await mapWithConcurrency(ids, OSV_DETAIL_CONCURRENCY, (id) =>
+    fetchVulnById(id)
   );
-
-  for (const result of settled) {
-    if (result.status === "fulfilled" && result.value.v) {
-      details.set(result.value.id, result.value.v);
-    }
-  }
+  ids.forEach((id, i) => {
+    const vuln = fetched[i];
+    if (vuln) details.set(id, vuln);
+  });
 
   return details;
 }
