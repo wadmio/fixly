@@ -3,7 +3,7 @@ import { fetchProject } from "./github";
 import { parseDependencies, resolveCheckVersion } from "./parse-packages";
 import { queryOsvBatch } from "./osv";
 import { normalizeOsvResults } from "./normalize";
-import { getCachedScan, setCachedScan } from "./cache";
+import { getCachedScan, setCachedScan, scanCacheKey } from "./cache";
 import type {
   ScanResult,
   ScanTarget,
@@ -149,7 +149,7 @@ export async function scanProjectFiles(
  * returned as a structured {@link ScanResult.error}.
  */
 export async function runScan(repoUrl: string): Promise<ScanResult> {
-  const cacheKey = repoUrl.trim();
+  const cacheKey = scanCacheKey(repoUrl);
   const cacheEnabled = process.env.FIXLY_DISABLE_SCAN_CACHE !== "1";
   if (cacheEnabled) {
     const cached = getCachedScan(cacheKey);

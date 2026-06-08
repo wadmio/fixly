@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js ≥ 18.18
+- Node.js 20 (pinned in [.nvmrc](../.nvmrc); CI runs Node 20)
 - pnpm (this repo pins `pnpm@10.11.1` via `packageManager`)
 
 **Use pnpm only.** There is no `package-lock.json`; mixing npm/yarn will create a conflicting lock
@@ -110,6 +110,6 @@ warning generation. They make no network calls. Add new tests there as `*.test.t
 
 - Internal packages export TypeScript **source** — no build step, no `dist/` to keep in sync.
 - `@fixly/core` must stay free of React/DOM/Next imports so it runs in both the Next server and the
-  VS Code extension host. It uses global `fetch`/`Buffer` (Node ≥ 18).
+  VS Code extension host. It uses global `fetch`/`Buffer`.
 - TypeScript is strict (`tsconfig.base.json`, including `noUnusedLocals`/`noUnusedParameters`).
 - Reuse `<Badge>` and the severity helpers from `@fixly/ui` rather than re-styling severities.

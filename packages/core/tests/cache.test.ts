@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { getCachedScan, setCachedScan, clearScanCache } from "../src/cache";
+import {
+  getCachedScan,
+  setCachedScan,
+  clearScanCache,
+  scanCacheKey,
+} from "../src/cache";
 import type { ScanResult } from "../src/types";
 
 function fakeResult(repo: string): ScanResult {
@@ -47,5 +52,32 @@ describe("scan cache", () => {
 
   it("misses unknown keys", () => {
     expect(getCachedScan("nope")).toBeNull();
+  });
+});
+
+describe("scanCacheKey", () => {
+  it("treats protocol/host variants of the same repo as one key", () => {
+    expect(scanCacheKey("https://github.com/o/r")).toBe(
+      scanCacheKey("github.com/o/r")
+    );
+  });
+
+  it("does not collide across different repo / branch / subpath inputs", () => {
+    const keys = [
+      scanCacheKey("https://github.com/o/r"),
+      scanCacheKey("https://github.com/o/r2"),
+      scanCacheKey("https://github.com/o2/r"),
+      scanCacheKey("https://github.com/o/r/tree/main"),
+      scanCacheKey("https://github.com/o/r/tree/dev"),
+      scanCacheKey("https://github.com/o/r/tree/main/pkg-a"),
+      scanCacheKey("https://github.com/o/r/tree/main/pkg-b"),
+    ];
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("includes branch + subpath so a subpath scan can't reuse a root-repo scan", () => {
+    expect(scanCacheKey("https://github.com/o/r")).not.toBe(
+      scanCacheKey("https://github.com/o/r/tree/main/packages/web")
+    );
   });
 });

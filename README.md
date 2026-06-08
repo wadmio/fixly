@@ -92,7 +92,7 @@ and **Rescan / Copy Summary / Export JSON** actions). Diagnostics go to the "Fix
 
 ## Development
 
-Requires Node ≥ 18.18 and pnpm. **Use pnpm only** (there is no `package-lock.json`).
+Requires Node 20 (pinned in [.nvmrc](.nvmrc); CI uses Node 20) and pnpm. **Use pnpm only** (there is no `package-lock.json`).
 
 ```bash
 pnpm install      # install all workspace dependencies
