@@ -47,4 +47,25 @@ describe("normalizeOsvResults — fields", () => {
     expect(v.cveId).toBe("CVE-2024-0001");
     expect(v.fixedVersion).toBe("2.1.0");
   });
+
+  it("includes affected ranges and confirms the installed version is in range", () => {
+    const v = normalizeOsvResults("pkg", "1.0.0", [
+      {
+        id: "GHSA-6",
+        affected: [
+          { package: { name: "pkg", ecosystem: "npm" }, ranges: [{ type: "SEMVER", events: [{ introduced: "0" }, { fixed: "2.1.0" }] }] },
+        ],
+      },
+    ])[0];
+    expect(v.affectedRanges).toEqual(["<2.1.0"]);
+    expect(v.versionInRange).toBe(true);
+  });
+
+  it("defaults versionSource to lockfile and passes through range-minimum", () => {
+    const base = { id: "GHSA-7" };
+    expect(normalizeOsvResults("pkg", "1.0.0", [base])[0].versionSource).toBe("lockfile");
+    expect(
+      normalizeOsvResults("pkg", "1.0.0", [base], "range-minimum")[0].versionSource
+    ).toBe("range-minimum");
+  });
 });

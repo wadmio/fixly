@@ -19,13 +19,18 @@ const SEVERITY_ORDER: Record<Severity, number> = {
   unknown: 4,
 };
 
-/** Return a new array of vulnerabilities ordered critical → unknown. */
+/**
+ * Return a new array of vulnerabilities ordered by severity (critical →
+ * unknown), then by package name within the same severity.
+ */
 export function sortBySeverity(
   vulnerabilities: ScanVulnerability[]
 ): ScanVulnerability[] {
-  return [...vulnerabilities].sort(
-    (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
-  );
+  return [...vulnerabilities].sort((a, b) => {
+    const bySeverity = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
+    if (bySeverity !== 0) return bySeverity;
+    return a.package.localeCompare(b.package);
+  });
 }
 
 function emptyTarget(partial: Partial<ScanTarget> = {}): ScanTarget {
@@ -88,9 +93,20 @@ export async function scanProjectFiles(
   }
 
   // Build the set of (name, concrete version) pairs to check against OSV.
-  const checkable = dependencies
-    .map((entry) => ({ name: entry.name, version: resolveCheckVersion(entry) }))
-    .filter((q): q is { name: string; version: string } => q.version !== null);
+  // `source` records whether the version came from an exact lock entry or the
+  // resolved minimum of a declared range (approximate) — surfaced per finding.
+  type Checkable = { name: string; version: string; source: "lockfile" | "range-minimum" };
+  const checkable: Checkable[] = dependencies
+    .map((entry) => {
+      const version = resolveCheckVersion(entry);
+      if (version === null) return null;
+      return {
+        name: entry.name,
+        version,
+        source: entry.installedVersion ? "lockfile" : "range-minimum",
+      } as Checkable;
+    })
+    .filter((q): q is Checkable => q !== null);
 
   if (checkable.length === 0) {
     return {
@@ -126,11 +142,13 @@ export async function scanProjectFiles(
   }
 
   const versionByName = new Map(checkable.map((q) => [q.name, q.version]));
+  const sourceByName = new Map(checkable.map((q) => [q.name, q.source]));
   const vulnerabilities: ScanVulnerability[] = [];
   for (const [pkgName, vulns] of osv.results.entries()) {
     const version = versionByName.get(pkgName);
     if (!version) continue;
-    vulnerabilities.push(...normalizeOsvResults(pkgName, version, vulns));
+    const source = sourceByName.get(pkgName) ?? "lockfile";
+    vulnerabilities.push(...normalizeOsvResults(pkgName, version, vulns, source));
   }
 
   return {

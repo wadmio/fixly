@@ -37,7 +37,20 @@ export default function ScanResultsTable({
                   <p className="font-medium text-white">{vuln.package}</p>
                   <p className="mt-0.5 font-mono text-xs text-[#BFC3C7]">
                     v{vuln.installedVersion}
+                    {vuln.versionSource === "range-minimum" && (
+                      <span
+                        className="ml-1 text-[#BFC3C7]/50"
+                        title="No lockfile — checked the minimum of the declared range. Approximate."
+                      >
+                        (≈ approx)
+                      </span>
+                    )}
                   </p>
+                  {vuln.affectedRanges.length > 0 && (
+                    <p className="mt-0.5 font-mono text-[10px] text-[#BFC3C7]/45">
+                      affects {vuln.affectedRanges.join(", ")}
+                    </p>
+                  )}
                 </td>
 
                 {/* Vuln ID */}
