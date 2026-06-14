@@ -1,3 +1,4 @@
+import Link from "next/link";
 import ScanForm from "@/components/ScanForm";
 
 const scope = [
@@ -21,6 +22,17 @@ export default function DashboardPage() {
       </div>
 
       <ScanForm />
+
+      <p className="-mt-4 text-xs text-[#BFC3C7]/70">
+        No URL handy?{" "}
+        <Link
+          href="/dashboard/results?fixture=vulnerable-demo"
+          className="text-white underline-offset-2 hover:underline"
+        >
+          Try a sample scan
+        </Link>{" "}
+        — a bundled project of known-vulnerable packages (no GitHub needed).
+      </p>
 
       <div className="rounded-xl border border-[#D1D5DB]/10 bg-[#1A1A1A] p-5">
         <p className="mb-3 text-xs font-medium text-white">Current scope</p>

@@ -1,7 +1,8 @@
 # Project status
 
 Read this to understand Fixly in ~90 seconds. (Deeper docs: [README](README.md),
-[docs/architecture.md](docs/architecture.md), [docs/development.md](docs/development.md).)
+[docs/architecture.md](docs/architecture.md), [docs/development.md](docs/development.md).
+Demo: [DEMO.md](DEMO.md). Weeks 5–8 deliverable map: [docs/weeks-5-8.md](docs/weeks-5-8.md).)
 
 ## What Fixly is
 
@@ -17,8 +18,10 @@ VS Code extension (scans the open project).
   fetch manifests, and report a precise error for invalid/missing/private/branch cases.
 - Parse direct `dependencies` + `devDependencies`; exact versions from the lock
   file (v1/v2/v3), with warnings for missing lock files or unresolvable ranges.
-- Query OSV and normalize findings (severity, CVSS, CVE, fix version), sorted
-  critical → unknown.
+- Query OSV and normalize findings (severity, CVSS, CVE, fix version, **affected
+  ranges**), sorted by severity then package name.
+- Independently re-verify each finding's installed version against the OSV
+  affected range (local semver matcher) and mark limited-confidence cases.
 - Reliability: retry with backoff (429/5xx/network), bounded OSV concurrency,
   optional `GITHUB_TOKEN`, in-memory scan cache, low-rate-limit warning.
 - Web report (summary, warnings, findings table) and a VS Code webview report
@@ -41,8 +44,9 @@ pnpm validate     # headless: runs real scans against sample repos (vulnerable, 
 pnpm --filter fixly-vscode build   # extension: then press F5 in apps/extension
 ```
 
-Good demo repos: `https://github.com/OWASP/NodeGoat` (17 findings),
-`https://github.com/sindresorhus/slugify` (clean).
+Good demo targets: the bundled **sample fixture** (`/dashboard/results?fixture=vulnerable-demo`,
+50+ real OSV findings, no GitHub needed — most reliable), `https://github.com/OWASP/NodeGoat`
+(~17 findings), `https://github.com/sindresorhus/slugify` (clean). Full click-path in [DEMO.md](DEMO.md).
 
 ## Current limitations
 

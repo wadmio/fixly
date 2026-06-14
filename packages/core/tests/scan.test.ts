@@ -2,16 +2,19 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { sortBySeverity, scanProjectFiles } from "../src/scan";
 import type { ScanVulnerability, Severity } from "../src/types";
 
-function vuln(severity: Severity): ScanVulnerability {
+function vuln(severity: Severity, pkg = "pkg"): ScanVulnerability {
   return {
-    osvId: `id-${severity}`,
+    osvId: `id-${severity}-${pkg}`,
     cveId: null,
-    package: "pkg",
+    package: pkg,
     installedVersion: "1.0.0",
     fixedVersion: null,
     severity,
     cvssVector: null,
     cvssScore: null,
+    affectedRanges: [],
+    versionInRange: null,
+    versionSource: "lockfile",
     title: severity,
     description: "",
     references: [],
@@ -37,6 +40,15 @@ describe("sortBySeverity", () => {
       vuln("high"),
     ]).map((v) => v.severity);
     expect(sorted).toEqual(["critical", "high", "medium", "low", "unknown"]);
+  });
+
+  it("breaks severity ties by package name", () => {
+    const sorted = sortBySeverity([
+      vuln("high", "zod"),
+      vuln("high", "axios"),
+      vuln("high", "lodash"),
+    ]).map((v) => v.package);
+    expect(sorted).toEqual(["axios", "lodash", "zod"]);
   });
 
   it("does not mutate the input array", () => {

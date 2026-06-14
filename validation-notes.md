@@ -1,8 +1,9 @@
 # Fixly – Scan Result Validation Notes
 
-**Last updated:** 2026-06-07
+**Last updated:** 2026-06-14
 **Original author:** Riyadh Al-Hoyidy (Phase 2 OSV/CVE validation)
-**Updated for:** the product-grade workspace refactor (Weeks 2–6 acceptance)
+**Updated for:** the product-grade workspace refactor (Weeks 2–6 acceptance);
+re-run 2026-06-14 for the Weeks 5–8 matching/affected-range work.
 
 All results below were produced by the real scanner via `pnpm validate`
 ([scripts/validate.ts](scripts/validate.ts)), which calls `@fixly/core`'s
@@ -53,7 +54,7 @@ No fake scan data remains in any product route.
 
 ---
 
-## Validation matrix (live runs, 2026-06-07)
+## Validation matrix (live runs, 2026-06-14)
 
 | # | Case | Input | Result |
 |---|---|---|---|
@@ -63,7 +64,8 @@ No fake scan data remains in any product route.
 | 4 | Non-GitHub URL | `https://gitlab.com/foo/bar` | `invalid_url` error. |
 | 5 | Repo not found | `wadmio/this-repo-does-not-exist-zzz` | `repo_not_found` error (message notes it may also be private). |
 | 6 | Missing package.json | `github/gitignore` | `no_package_json` error on branch `main`. |
-| 7 | Branch + subpath | `vercel/next.js` → `tree/canary/packages/next` | 229 deps, **219 resolved**, 21 vulns (H10 M4 L7). Branch `canary`, subpath honored; 10 npm-alias specifiers skipped with a warning. |
+| 7 | Branch + subpath | `vercel/next.js` → `tree/canary/packages/next` | 229 deps, **219 resolved**, **22 vulns (C1 H10 M4 L7)**. Branch `canary`, subpath honored; 10 npm-alias specifiers skipped with a warning. (Was 21/no-critical on 2026-06-07 — OSV added an advisory; the live count tracks OSV.) |
+| 8 | Local fixture (no GitHub) | `?fixture=vulnerable-demo` | 6 deps, **50+ vulns** across `lodash 4.17.4`, `minimist 1.2.0`, `axios 0.21.0`, `node-fetch 2.6.0`, `handlebars 4.0.11`, `ejs 2.6.1`. Several critical. **Every finding confirmed in-range** by the local matcher (`versionInRange === true`). Queries OSV only — no GitHub fetch, so it can't be rate-limited mid-demo. |
 
 ### CVE/GHSA matching check
 
@@ -100,7 +102,7 @@ pnpm --filter @fixly/core test   # unit tests (no network)
 - **Rate-limit warning** — when GitHub's remaining quota is low and no
   `GITHUB_TOKEN` is set, a warning is added to the report.
 
-## Outputs (raw `pnpm validate`, 2026-06-07)
+## Outputs (raw `pnpm validate`, 2026-06-14)
 
 Run with `FIXLY_DISABLE_SCAN_CACHE=1` to force fresh scans (post-reliability changes):
 
@@ -138,7 +140,7 @@ error:   no_package_json — No package.json found in github/gitignore on branch
 url:     https://github.com/vercel/next.js/tree/canary/packages/next
 target:  vercel/next.js branch=canary found=[package.json] missing=[package-lock.json]
 deps:    total=229 resolved=219
-vulns:   total=21 (C0 H10 M4 L7 U0)
+vulns:   total=22 (C1 H10 M4 L7 U0)
 warning: No package-lock.json found ...
 warning: Could not determine a version to check for 10 package(s): ... These were skipped.
 ```
