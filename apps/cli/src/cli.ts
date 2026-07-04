@@ -9,6 +9,7 @@
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { vibecheck } from "./commands/vibecheck";
+import type { Grade } from "@fixly/core";
 import { scan, type FailOn } from "./commands/scan";
 import { check } from "./commands/check";
 import { guard } from "./commands/guard";
@@ -30,6 +31,7 @@ const HELP = `
     --sarif               SARIF 2.1.0 output for code scanning (scan)
     --fail-on <level>     exit 1 at/above: critical|high|medium|low|any|never
                           (scan; default: never. Malware always fails a gate.)
+    --fail-under <grade>  exit 1 if the Fixly Score is below A|B|C|D|F (vibecheck)
     --no-transitive       direct dependencies only (scan/vibecheck)
     --yes                 auto-accept caution verdicts (guard, CI)
     --force               override BLOCK verdicts (guard; you own the risk)
@@ -87,6 +89,7 @@ async function main(): Promise<number> {
       json: { type: "boolean", default: false },
       sarif: { type: "boolean", default: false },
       "fail-on": { type: "string", default: "never" },
+      "fail-under": { type: "string" },
       transitive: { type: "boolean", default: true },
       "no-transitive": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
@@ -107,8 +110,20 @@ async function main(): Promise<number> {
   const transitive = values["no-transitive"] ? false : values.transitive;
 
   switch (command) {
-    case "vibecheck":
-      return vibecheck({ dir: rest[0] ?? ".", json: values.json });
+    case "vibecheck": {
+      const failUnderRaw = values["fail-under"];
+      const validGrades: Grade[] = ["A", "B", "C", "D", "F"];
+      let failUnder: Grade | null = null;
+      if (failUnderRaw !== undefined) {
+        const g = failUnderRaw.toUpperCase() as Grade;
+        if (!validGrades.includes(g)) {
+          process.stderr.write(`${red("✖")} --fail-under must be one of: ${validGrades.join(", ")}\n`);
+          return 2;
+        }
+        failUnder = g;
+      }
+      return vibecheck({ dir: rest[0] ?? ".", json: values.json, failUnder });
+    }
 
     case "scan": {
       const failOn = values["fail-on"] as FailOn;

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { parsePackageSpec } from "../src/commands/check";
 import { parseInstallCommand } from "../src/commands/guard";
 import { parseGuardArgs } from "../src/cli";
+import { gradeFailsThreshold } from "../src/commands/vibecheck";
 import { scanLocalProject } from "../src/local";
 
 describe("parsePackageSpec", () => {
@@ -113,6 +114,19 @@ describe("parseGuardArgs", () => {
     const { argv, force } = parseGuardArgs(["--force", "npm", "install", "x"]);
     expect(force).toBe(true);
     expect(argv).toEqual(["npm", "install", "x"]);
+  });
+});
+
+describe("gradeFailsThreshold", () => {
+  it("fails when the grade ranks below the threshold", () => {
+    expect(gradeFailsThreshold("C", "B")).toBe(true);
+    expect(gradeFailsThreshold("F", "A")).toBe(true);
+    expect(gradeFailsThreshold("D", "C")).toBe(true);
+  });
+  it("passes when the grade meets or beats the threshold", () => {
+    expect(gradeFailsThreshold("B", "B")).toBe(false);
+    expect(gradeFailsThreshold("A", "C")).toBe(false);
+    expect(gradeFailsThreshold("A", "A")).toBe(false);
   });
 });
 
