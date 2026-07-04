@@ -60,7 +60,9 @@ export function verdictBanner(verdict: VerdictLevel): string {
       return green(bold("✔ SAFE"));
     case "caution":
       return yellow(bold("⚠ CAUTION"));
-    default:
+    case "unknown":
+      return gray(bold("? UNVERIFIED"));
+    case "block":
       return red(bold("✖ BLOCK"));
   }
 }

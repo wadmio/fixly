@@ -53,5 +53,13 @@ export async function check(options: CheckOptions): Promise<number> {
     process.stdout.write(lines.join("\n") + "\n");
   }
 
-  return verdict.verdict === "safe" ? 0 : verdict.verdict === "caution" ? 1 : 2;
+  // 0 safe · 2 block · 1 for caution AND unknown (both mean "not cleared").
+  switch (verdict.verdict) {
+    case "safe":
+      return 0;
+    case "block":
+      return 2;
+    default:
+      return 1;
+  }
 }

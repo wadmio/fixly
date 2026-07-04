@@ -59,6 +59,31 @@ describe("parseInstallCommand", () => {
   it("treats a bare lockfile install as having no specs", () => {
     expect(parseInstallCommand(["npm", "install"])?.specs).toEqual([]);
   });
+
+  it("does not treat a value-taking flag's value as a package", () => {
+    // pnpm --filter <ws> and npm -w <ws> name a workspace, not a package.
+    expect(parseInstallCommand(["pnpm", "add", "--filter", "web", "lodash"])?.specs).toEqual([
+      "lodash",
+    ]);
+    expect(parseInstallCommand(["npm", "i", "-w", "myworkspace", "lodash"])?.specs).toEqual([
+      "lodash",
+    ]);
+    // Equals form is self-contained.
+    expect(parseInstallCommand(["pnpm", "add", "--filter=web", "lodash"])?.specs).toEqual([
+      "lodash",
+    ]);
+  });
+
+  it("treats pnpm -w as a boolean (still checks the package after it)", () => {
+    // -w is --workspace-root on pnpm, not a value flag — lodash must be checked.
+    expect(parseInstallCommand(["pnpm", "add", "-w", "lodash"])?.specs).toEqual(["lodash"]);
+  });
+
+  it("handles `yarn global add`", () => {
+    const parsed = parseInstallCommand(["yarn", "global", "add", "typescript"]);
+    expect(parsed?.specs).toEqual(["typescript"]);
+    expect(parsed?.args).toEqual(["global", "add", "typescript"]);
+  });
 });
 
 describe("parseGuardArgs", () => {

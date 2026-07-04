@@ -16,6 +16,23 @@ import { bold, dim, gray, green, red, yellow, verdictBanner } from "../ui";
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
 const INSTALL_SUBCOMMANDS = new Set(["install", "i", "add"]);
 
+// Flags whose NEXT token is a VALUE, not a package to install. Skipping the
+// value stops e.g. `pnpm add --filter web pkg` from checking "web" as a package.
+const VALUE_FLAGS = new Set([
+  "--filter",
+  "--registry",
+  "--tag",
+  "--omit",
+  "--include",
+  "--prefix",
+  "-C",
+  "--dir",
+  "--save-prefix",
+]);
+// `-w`/`--workspace` take a value on npm/yarn but are booleans on pnpm/bun, so
+// they're only treated as value-taking for the managers that use them that way.
+const NPM_YARN_VALUE_FLAGS = new Set(["-w", "--workspace"]);
+
 export interface ParsedInstall {
   /** The package manager binary. */
   command: string;
@@ -32,27 +49,37 @@ function isRegistrySpec(spec: string): boolean {
   return !/^(\.|\/|~|file:|git\+|git:|github:|https?:|workspace:)/.test(spec);
 }
 
-/** A version is checkable when it's exact; ranges/tags resolve to "latest". */
-function checkableVersion(version: string | null): string | null {
-  if (!version) return null;
-  return /^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version) ? version : null;
-}
-
 /**
  * Parse a wrapped install command. Returns null when it isn't a recognized
- * `<npm|pnpm|yarn|bun> <install|i|add> …` invocation.
+ * `<npm|pnpm|yarn|bun> <install|i|add> …` invocation. Handles `yarn global add`
+ * and skips the values of value-taking flags so they aren't misread as packages.
  */
 export function parseInstallCommand(argv: string[]): ParsedInstall | null {
   if (argv.length === 0) return null;
   const command = argv[0];
   if (!PACKAGE_MANAGERS.has(command)) return null;
-  const sub = argv[1];
+
+  // `yarn global add <pkg>` puts the install subcommand one slot later.
+  const subIndex = argv[1] === "global" ? 2 : 1;
+  const sub = argv[subIndex];
   if (!sub || !INSTALL_SUBCOMMANDS.has(sub)) return null;
+
+  const valueFlags =
+    command === "npm" || command === "yarn"
+      ? new Set([...VALUE_FLAGS, ...NPM_YARN_VALUE_FLAGS])
+      : VALUE_FLAGS;
 
   const specs: string[] = [];
   const uncheckable: string[] = [];
-  for (const arg of argv.slice(2)) {
-    if (arg.startsWith("-")) continue; // flags pass through
+  const rest = argv.slice(subIndex + 1);
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i];
+    if (arg.startsWith("-")) {
+      // A value-taking flag in space-separated form consumes the next token
+      // (the `--flag=value` form is already self-contained).
+      if (!arg.includes("=") && valueFlags.has(arg)) i++;
+      continue;
+    }
     if (isRegistrySpec(arg)) specs.push(arg);
     else uncheckable.push(arg);
   }
@@ -128,7 +155,8 @@ export async function guard(options: GuardOptions): Promise<number> {
   const verdicts = await Promise.all(
     parsed.specs.map((spec) => {
       const { name, version } = parsePackageSpec(spec);
-      return checkPackage(name, checkableVersion(version));
+      // checkPackage resolves dist-tags/ranges to the concrete install version.
+      return checkPackage(name, version);
     })
   );
 
@@ -136,7 +164,9 @@ export async function guard(options: GuardOptions): Promise<number> {
   process.stderr.write("\n");
 
   const blocked = verdicts.filter((v) => v.verdict === "block");
-  const cautioned = verdicts.filter((v) => v.verdict === "caution");
+  // "unknown" (couldn't verify) is gated like "caution" — never passed through
+  // silently, since a missed check is not a clean bill of health.
+  const cautioned = verdicts.filter((v) => v.verdict === "caution" || v.verdict === "unknown");
 
   if (blocked.length > 0 && !options.force) {
     process.stderr.write(
@@ -158,7 +188,7 @@ export async function guard(options: GuardOptions): Promise<number> {
   if (cautioned.length > 0 && !options.yes && blocked.length === 0) {
     if (!process.stdin.isTTY) {
       process.stderr.write(
-        `${yellow("⚠ caution verdicts in a non-interactive session")} — re-run with --yes to proceed.\n`
+        `${yellow("⚠ caution/unverified verdicts in a non-interactive session")} — re-run with --yes to proceed.\n`
       );
       return 1;
     }

@@ -145,5 +145,19 @@ describe("checkPackage", () => {
     expect(v.warnings.length).toBeGreaterThan(0);
     expect(v.warnings.join(" ")).toContain("registry was unreachable");
     expect(v.signals.exists).toBeNull(); // unknown, NOT false
+    // Fail-safe, not fail-open: a package we couldn't check is NOT "safe".
+    expect(v.verdict).toBe("unknown");
+    expect(v.summary).toContain("COULD NOT VERIFY");
+  });
+
+  it("does NOT downgrade to unknown when OSV is deliberately disabled and the registry is clean", async () => {
+    // A caller opting out of OSV (offline name-only check) still gets a real
+    // SAFE from the registry+typosquat signals — opt-out is not "couldn't check".
+    stubRoutes([
+      ["registry.npmjs.org", () => jsonRes(200, packument())],
+      ["api.npmjs.org", () => jsonRes(200, { downloads: 40000 })],
+    ]);
+    const v = await checkPackage("some-established-lib", "2.0.0", { osv: false, intel: false });
+    expect(v.verdict).toBe("safe");
   });
 });

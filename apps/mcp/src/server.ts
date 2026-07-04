@@ -28,7 +28,8 @@ export function createFixlyServer(): McpServer {
     "check_package",
     "ALWAYS call this before adding, installing, or recommending an npm package (including in generated package.json edits). Returns a security verdict: " +
       "'safe' → proceed; 'caution' → proceed only with the reasons in mind and tell the user; 'block' → do NOT install — the package is malware, doesn't exist " +
-      "(likely a hallucinated name), or has actively-exploited vulnerabilities. When blocked, prefer `didYouMean`/`fixCommand` or ask suggest_safe_alternative.",
+      "(likely a hallucinated name), or has actively-exploited vulnerabilities; 'unknown' → could NOT verify (npm registry/OSV unreachable) — do not assume safe, tell the user and retry. " +
+      "When blocked, prefer `didYouMean`/`fixCommand` or ask suggest_safe_alternative.",
     {
       name: z.string().min(1).describe("npm package name, e.g. 'lodash' or '@scope/pkg'"),
       version: z

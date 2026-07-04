@@ -14,7 +14,7 @@ const MAX_FIXES = 5;
 export interface CompactVerdict {
   package: string;
   evaluatedVersion: string | null;
-  verdict: "safe" | "caution" | "block";
+  verdict: "safe" | "caution" | "block" | "unknown";
   summary: string;
   reasons: string[];
   didYouMean: string | null;

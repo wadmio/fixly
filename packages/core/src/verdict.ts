@@ -16,13 +16,16 @@
 import { queryOsvPackage, type OsvVuln } from "./osv";
 import { normalizeOsvResults } from "./normalize";
 import { enrichWithIntel } from "./intel";
-import { fetchRegistryInfo, fetchLatestVersion, type RegistryInfo } from "./registry";
+import { fetchRegistryInfo, fetchLatestVersion, fetchDistTagVersion, type RegistryInfo } from "./registry";
 import { findTyposquatTarget } from "./typosquat";
 import { isPopularPackage } from "./popular-packages";
 import { scoreNameRisk } from "./name-model";
 import type { ScanVulnerability, Severity } from "./types";
 
-export type VerdictLevel = "safe" | "caution" | "block";
+// "unknown" = we could not perform the checks that clear a package (registry
+// existence and/or OSV were unreachable). It is NOT "safe" — the engine never
+// fails open. Callers should treat it as "not yet cleared".
+export type VerdictLevel = "safe" | "caution" | "block" | "unknown";
 
 export interface PackageSignals {
   exists: boolean | null;
@@ -72,6 +75,11 @@ function emptyCounts(): Record<Severity, number> {
   return { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };
 }
 
+/** An exact semver (1.2.3 / 1.2.3-rc.1) — not a dist-tag or range. */
+function isExactVersion(v: string): boolean {
+  return /^\d+\.\d+\.\d+(-[\w.]+)?$/.test(v);
+}
+
 export interface CheckPackageOptions {
   /** Skip the OSV vulnerability lookup (offline name-only checks). */
   osv?: boolean;
@@ -92,12 +100,31 @@ export async function checkPackage(
   const warnings: string[] = [];
   const popular = isPopularPackage(name);
 
+  // --- Resolve a dist-tag/range (e.g. "next", "^1.2.0") to the concrete
+  // version an install would actually fetch, so the verdict evaluates the right
+  // one instead of silently falling back to `latest`. Exact versions pass
+  // through untouched; an unresolvable tag/range falls back to latest below.
+  let requestedVersion: string | null = version ?? null;
+  if (requestedVersion && !isExactVersion(requestedVersion)) {
+    try {
+      const resolved = await fetchDistTagVersion(name, requestedVersion);
+      if (resolved) {
+        warnings.push(`"${requestedVersion}" resolves to ${resolved} — evaluating that version.`);
+        requestedVersion = resolved;
+      } else {
+        requestedVersion = null; // unknown tag/range → evaluate latest instead
+      }
+    } catch {
+      requestedVersion = null;
+    }
+  }
+
   // --- Registry profile (skipped for curated-popular packages: their
   // packuments are huge and their existence isn't in question).
   let registry: RegistryInfo | null = null;
   if (!popular) {
     try {
-      registry = await fetchRegistryInfo(name, version);
+      registry = await fetchRegistryInfo(name, requestedVersion);
     } catch {
       warnings.push("npm registry was unreachable — existence/age/download signals are missing.");
     }
@@ -111,7 +138,7 @@ export async function checkPackage(
   // --- The version to evaluate. A name-only check evaluates what an install
   // would fetch TODAY (the latest version) — never the package's entire
   // historical advisory record, which would flag long-fixed CVEs.
-  let effectiveVersion: string | null = version ?? registry?.latestVersion ?? null;
+  let effectiveVersion: string | null = requestedVersion ?? registry?.latestVersion ?? null;
   if (!effectiveVersion && registry?.exists !== false) {
     try {
       effectiveVersion = await fetchLatestVersion(name);
@@ -121,13 +148,19 @@ export async function checkPackage(
   }
 
   // --- OSV advisories (vulnerabilities + MAL- malware records).
+  // Track whether an ENABLED OSV check actually completed: if OSV was requested
+  // but couldn't run, there's no malware/vuln evidence, so "safe" would be a
+  // fail-open guess (see the unknown-verdict override below). A caller that
+  // opts out of OSV (options.osv === false) is treated as "not required".
   let vulnerabilities: ScanVulnerability[] = [];
   const osvEnabled = options.osv ?? true;
+  let osvChecked = !osvEnabled;
   if (osvEnabled && registry?.exists !== false) {
     if (effectiveVersion) {
       try {
         const osvVulns: OsvVuln[] = await queryOsvPackage(name, effectiveVersion);
         vulnerabilities = normalizeOsvResults(name, effectiveVersion, osvVulns);
+        osvChecked = true;
       } catch {
         warnings.push("OSV was unreachable — vulnerability/malware records could not be checked.");
       }
@@ -136,6 +169,10 @@ export async function checkPackage(
         "Could not determine a version to evaluate — vulnerability records were not checked."
       );
     }
+  } else if (registry?.exists === false) {
+    // A confirmed-nonexistent package IS a determinate answer (a BLOCK) — there
+    // is nothing left to check, so this does not count as "couldn't check".
+    osvChecked = true;
   }
 
   // --- Exploit intelligence (KEV + EPSS) on any CVEs found.
@@ -180,7 +217,27 @@ export async function checkPackage(
     maxEpss,
   };
 
-  const { verdict, reasons } = synthesize(name, effectiveVersion, signals);
+  const base = synthesize(name, effectiveVersion, signals);
+
+  // Fail-safe, not fail-open: a "safe" is only trustworthy if we actually ran
+  // the checks that produce BLOCK/CAUTION. If existence couldn't be established
+  // (registry unreachable, non-popular) or an enabled OSV lookup couldn't run,
+  // downgrade "safe" to "unknown" so callers never mistake a missed check for a
+  // clean bill of health. Real CAUTION/BLOCK findings are kept as-is.
+  const existenceUnknown = !popular && registry === null;
+  let verdict = base.verdict;
+  let reasons = base.reasons;
+  if (verdict === "safe" && (existenceUnknown || !osvChecked)) {
+    verdict = "unknown";
+    reasons = [
+      existenceUnknown && !osvChecked
+        ? "Couldn't verify this package — the npm registry and OSV were both unreachable. This is not a clean bill of health; try again."
+        : existenceUnknown
+          ? "Couldn't confirm this package exists on npm (registry unreachable), so it can't be cleared as safe."
+          : "Couldn't check this package for malware or known vulnerabilities (OSV unreachable), so it can't be cleared as safe.",
+    ];
+  }
+
   return {
     package: name,
     version: version ?? null,
@@ -273,6 +330,7 @@ function synthesize(
   if (
     s.nameRiskFlagged &&
     !s.popular &&
+    s.exists === true && // meaningless on a package we can't confirm exists
     block.length === 0 &&
     (s.weeklyDownloads === null || s.weeklyDownloads < LOW_DOWNLOADS_PER_WEEK)
   ) {
@@ -295,5 +353,6 @@ function buildSummary(
   const label = version ? `${name}@${version}` : name;
   if (verdict === "safe") return `${label} looks safe — no malware records, no known vulnerabilities, no red flags.`;
   if (verdict === "caution") return `${label}: proceed with caution — ${reasons[0]}`;
+  if (verdict === "unknown") return `${label}: COULD NOT VERIFY — ${reasons[0]}`;
   return `${label}: DO NOT INSTALL — ${reasons[0]}`;
 }
