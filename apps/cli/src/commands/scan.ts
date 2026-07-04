@@ -78,7 +78,7 @@ export async function scan(options: ScanOptions): Promise<number> {
     lines.push("");
     lines.push(`  ${bold("fixly scan")} ${dim("—")} ${bold(result.repo)}`);
     lines.push(
-      `  ${result.totalPackages} packages ${dim(
+      `  ${result.totalPackages} package${result.totalPackages === 1 ? "" : "s"} ${dim(
         `(${result.directPackages} direct + ${result.transitivePackages} transitive)`
       )} ${dim("·")} ${result.resolvedPackages} checked ${dim("·")} ${dim(result.source === "osv+nvd" ? "OSV + NVD" : "OSV")}`
     );
@@ -88,7 +88,7 @@ export async function scan(options: ScanOptions): Promise<number> {
       lines.push(`  ${green("✔ No known vulnerabilities.")}`);
     } else {
       lines.push(
-        `  ${bold(String(result.vulnerabilities.length))} findings ${dim(
+        `  ${bold(String(result.vulnerabilities.length))} finding${result.vulnerabilities.length === 1 ? "" : "s"} ${dim(
           `(${counts.critical}C ${counts.high}H ${counts.medium}M ${counts.low}L ${counts.unknown}U)`
         )} ${dim("·")} grade ${gradeColor(grade.grade)(bold(grade.grade))} ${dim(`(${grade.score}/100)`)}`
       );

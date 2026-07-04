@@ -37,9 +37,9 @@ export async function vibecheck(options: VibecheckOptions): Promise<number> {
   lines.push(`  ${grade.headline}`);
   lines.push("");
   lines.push(
-    `  ${dim("checked")} ${result.totalPackages} packages ${dim(
+    `  ${dim("checked")} ${result.totalPackages} package${result.totalPackages === 1 ? "" : "s"} ${dim(
       `(${result.directPackages} direct + ${result.transitivePackages} transitive)`
-    )} ${dim("·")} ${result.vulnerabilities.length} findings ${dim("·")} ${dim(result.source === "osv+nvd" ? "OSV + NVD" : "OSV")}`
+    )} ${dim("·")} ${result.vulnerabilities.length} finding${result.vulnerabilities.length === 1 ? "" : "s"} ${dim("·")} ${dim(result.source === "osv+nvd" ? "OSV + NVD" : "OSV")}`
   );
 
   const badges: string[] = [];
@@ -64,7 +64,7 @@ export async function vibecheck(options: VibecheckOptions): Promise<number> {
 
   lines.push("");
   lines.push(
-    `  ${dim("share it:")} vibecheck ${grade.grade} (${grade.score}/100) on ${result.repo} ${dim("·")} npx fixly vibecheck`
+    `  ${dim("share it:")} vibecheck ${grade.grade} (${grade.score}/100) on ${result.repo} ${dim("·")} fixly vibecheck`
   );
   lines.push("");
 

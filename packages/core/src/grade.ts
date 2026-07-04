@@ -81,21 +81,22 @@ function toGrade(score: number): Grade {
 
 function buildHeadline(grade: Grade, result: ScanResult, hasMalware: boolean): string {
   const n = result.vulnerabilities.length;
-  const pkgs = result.totalPackages;
+  const findings = `${n} finding${n === 1 ? "" : "s"}`;
+  const pkgs = `${result.totalPackages} package${result.totalPackages === 1 ? "" : "s"}`;
   if (hasMalware) return `F — a known-malicious package is installed. Stop and remove it before anything else.`;
   switch (grade) {
     case "A":
       return n === 0
-        ? `A — ${pkgs} packages checked, nothing to fix. Ship it.`
-        : `A — ${pkgs} packages checked, only minor noise. Ship it.`;
+        ? `A — ${pkgs} checked, nothing to fix. Ship it.`
+        : `A — ${pkgs} checked, only minor noise. Ship it.`;
     case "B":
-      return `B — solid, but ${n} findings deserve a look before you ship.`;
+      return `B — solid, but ${findings} deserve${n === 1 ? "s" : ""} a look before you ship.`;
     case "C":
-      return `C — ${n} findings, some serious. Half an hour of upgrades would pay off.`;
+      return `C — ${findings}, some serious. Half an hour of upgrades would pay off.`;
     case "D":
-      return `D — ${n} findings including high-priority ones. Your dependencies need attention today.`;
+      return `D — ${findings} including high-priority ones. Your dependencies need attention today.`;
     default:
-      return `F — ${n} findings with real exploitation risk. Fix the top three immediately.`;
+      return `F — ${findings} with real exploitation risk. Fix the top three immediately.`;
   }
 }
 

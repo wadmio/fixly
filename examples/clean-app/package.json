@@ -1,0 +1,9 @@
+{
+  "name": "fixly-clean-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Clean demo project for fixly — grades A",
+  "dependencies": {
+    "ms": "2.1.3"
+  }
+}

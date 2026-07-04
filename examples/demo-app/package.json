@@ -1,0 +1,12 @@
+{
+  "name": "fixly-demo-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Intentionally-vulnerable demo project for fixly — DO NOT install these dependencies",
+  "dependencies": {
+    "lodash": "4.17.4",
+    "minimist": "1.2.0",
+    "axios": "0.21.0",
+    "mongo-express": "0.53.0"
+  }
+}

@@ -26,6 +26,9 @@ const VULNERABLE_DEPS: Record<string, string> = {
   "node-fetch": "2.6.0",
   handlebars: "4.0.11",
   ejs: "2.6.1",
+  // CVE-2019-10758 is in the CISA KEV catalog — lights up the
+  // "exploited in the wild" marker and the KEV grade penalty.
+  "mongo-express": "0.53.0",
 };
 
 // Present only in the lock file tree (NOT declared in package.json) → these
