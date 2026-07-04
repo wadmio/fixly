@@ -6,12 +6,15 @@ Demo: [DEMO.md](DEMO.md). Weeks 5–8 deliverable map: [docs/weeks-5-8.md](docs/
 
 ## What Fixly is
 
-A scanner for vulnerable **npm dependencies**. It reads a project's
+A scanner for vulnerable and malicious **npm dependencies**. It reads a project's
 `package.json` / `package-lock.json`, checks every installed package — direct
 **and transitive** — against the **OSV** database, cross-references CVEs with
-**NVD**, and reports findings. Two surfaces share one scanner (`@fixly/core`):
-a Next.js web app (scans a public GitHub repo by URL) and a VS Code extension
-(scans the open project, inline in the editor).
+**NVD**, layers on **CISA KEV / EPSS** exploit intelligence, and reports findings
+with an A–F **Fixly Score**. Five surfaces share one core (`@fixly/core`):
+a Next.js web app (scans a public GitHub repo by URL), a CLI (`fixly` —
+vibecheck / scan / check / guard), a VS Code extension (scans the open project,
+inline in the editor), an MCP server for AI coding agents, and a Python ML lab
+that trains the name-risk model the verdict engine runs via ONNX.
 
 ## What works now
 
@@ -33,10 +36,21 @@ a Next.js web app (scans a public GitHub repo by URL) and a VS Code extension
   dashboard and a new/resolved/unchanged **delta banner** on re-scans.
 - Reliability: retry with backoff (429/5xx/network), bounded OSV concurrency,
   optional `GITHUB_TOKEN`, in-memory scan cache, low-rate-limit warning.
-- Web report (summary, delta banner, warnings, findings table with
-  direct/transitive filter, NVD scores) and a VS Code extension with a webview
-  report, **inline diagnostics on package.json**, **on-save rescans**
-  (`fixly.scanOnSave`), and a live **status-bar** severity indicator.
+- Web report (Fixly Score card, summary, delta banner, warnings, findings table
+  with direct/transitive filter, NVD scores, exploit-intel markers) and a VS Code
+  extension with a webview report, **inline diagnostics on package.json**,
+  **on-save rescans** (`fixly.scanOnSave`), and a live **status-bar** severity indicator.
+- **CLI** (`fixly`): `vibecheck` (A–F grade + top fixes), `scan` (`--json`,
+  `--sarif`, `--fail-on` CI gate — malware always fails a gate), `check`
+  (SAFE/CAUTION/BLOCK verdict), `guard` (pre-install check wrapped around
+  `npm|pnpm|yarn|bun install`, blocks malware/typosquats).
+- **Verdict engine** in core: OSV `MAL-*` malware records, npm registry health,
+  typosquat/slopsquat detection, nonexistent-name (AI-hallucination) blocking,
+  KEV/EPSS, and an optional **ONNX name-risk model** trained in `ml/` on real
+  OSV malware data (feature parity pinned by paired Python/TS tests).
+- **MCP server** (`fixly-mcp`): `check_package` / `scan_project` /
+  `suggest_safe_alternative` over stdio, compact verdict-shaped responses for
+  AI coding agents.
 
 ## Key milestones done
 

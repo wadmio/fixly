@@ -114,7 +114,7 @@ files plus `branch`, `filesFound`, `filesMissing`; on failure a precise code:
 | Rate-limit-friendly batching + concurrency cap | `querybatch` chunks of 999; `mapWithConcurrency` cap 8 | ✅ |
 | Normalize to a consistent internal shape | [`normalize.ts`](../packages/core/src/normalize.ts) → `ScanVulnerability` | ✅ |
 | Don't invent missing severity/CVSS | resolves to `"unknown"` / `null` | ✅ |
-| NVD | **not implemented** by design — see [vulnerability-sources.md](vulnerability-sources.md) | ➖ |
+| NVD | not in weeks 5–8 scope; **added later** as best-effort CVE enrichment (`nvd.ts` `enrichWithNvd`) — see [vulnerability-sources.md](vulnerability-sources.md) | ✅ (later) |
 
 ### OSV request/response flow
 

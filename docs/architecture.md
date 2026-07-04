@@ -1,6 +1,9 @@
 # Architecture
 
-Fixly is a pnpm + Turborepo workspace. One shared scanner package is consumed by two front ends.
+Fixly is a pnpm + Turborepo workspace. One shared scanner package is consumed by four front ends
+(web app, CLI, MCP server, VS Code extension). The diagram below shows the original two-surface
+scan flow; the CLI and MCP server consume the same `scanProjectFiles` pipeline plus the verdict
+engine (`checkPackage`) and grade (`computeGrade`).
 
 ```
                          ┌─────────────────────────────┐
@@ -30,6 +33,8 @@ Fixly is a pnpm + Turborepo workspace. One shared scanner package is consumed by
 | `packages/core` | `@fixly/core` | All scanning logic. Pure TypeScript; uses global `fetch` and `Buffer`. Must run in both the Next server runtime and the VS Code (Node) extension host, so it has **no** React/DOM/Next dependencies. |
 | `packages/ui` | `@fixly/ui` | Small shared React UI — `Badge` and severity label/style helpers. Consumed by the web app today; available to an extension webview later. |
 | `apps/web` | `@fixly/web` | Next.js 16 App Router web scanner. |
+| `apps/cli` | `fixly-cli` | CLI (bin `fixly`): vibecheck, scan (SARIF/CI gate), check, guard. |
+| `apps/mcp` | `fixly-mcp` | MCP server (stdio) exposing verdicts/scans to AI coding agents. |
 | `apps/extension` | `fixly-vscode` | VS Code extension prototype. |
 
 ## Core data flow
@@ -55,13 +60,16 @@ Fixly is a pnpm + Turborepo workspace. One shared scanner package is consumed by
    resolved in priority order: top-level `database_specific.severity` → a locally computed CVSS v3.1
    base score (`cvssV3BaseScore`) → per-`affected` severity fields → `unknown`. It also extracts the
    fix version and the `CVE-` alias.
-5. **Assemble.** `scanProjectFiles` sorts findings by severity (critical → unknown) and returns a
+5. **Enrich.** `enrichWithNvd` cross-references findings that carry a CVE against NVD for an
+   independent CVSS opinion (best-effort, rate-limit aware, never fails a scan; `ScanResult.source`
+   becomes `"osv+nvd"`), and `enrichWithIntel` stamps CISA KEV / EPSS exploit intelligence.
+6. **Assemble.** `scanProjectFiles` sorts findings by severity (critical → unknown) and returns a
    `ScanResult` carrying `dependencies`, `totalPackages` (declared) and `resolvedPackages`
    (checked), `vulnerabilities`, a `target` (owner/repo, branch used, subpath, files found/missing),
    accumulated `warnings`, and a structured `error` (`{ code, message }`) when the scan could not
    complete. The web `/api/scan` route maps each error code to an HTTP status.
 
-`runScan` (remote) and `scanProjectFiles` (already-loaded files) share steps 2–5 — the extension and
+`runScan` (remote) and `scanProjectFiles` (already-loaded files) share steps 2–6 — the extension and
 web app produce identical reports for the same inputs.
 
 ## Key decisions
@@ -73,7 +81,9 @@ web app produce identical reports for the same inputs.
   esbuild. This keeps the dev loop simple and avoids stale `dist/`.
 - **`node-linker=hoisted`.** Next.js/Turbopack needs some transitive deps (`postcss`, `scheduler`)
   resolvable from `apps/web`. A hoisted node_modules layout (`.npmrc`) keeps that working on pnpm.
-- **OSV only.** `ScanResult.source` is hardcoded `"osv"`. NVD is intentionally not implemented.
+- **OSV detects, NVD enriches.** OSV is the only detection source. NVD is consulted best-effort,
+  per CVE, purely to add an independent CVSS opinion (`ScanResult.source` is `"osv"` or
+  `"osv+nvd"`); partial NVD coverage is expected and stated in a warning, never a failure.
 
 ## Reliability
 

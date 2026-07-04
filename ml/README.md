@@ -1,8 +1,8 @@
 # Fixly ML Lab
 
 Machine-learning signals for the verdict engine. **Training happens here in
-Python; inference ships to Node via ONNX** — users of `npx fixly` never need
-Python installed.
+Python; inference ships to Node via ONNX** — users of the `fixly` CLI never
+need Python installed.
 
 ```
 ml/
@@ -30,8 +30,11 @@ legitimate population?"
   log-likelihood under a benign-corpus language model, edit distance to the
   nearest popular package, affix flags. Name-only by design — the exported
   model runs offline, with zero network calls, anywhere.
-- **Estimator:** scikit-learn `HistGradientBoostingClassifier` (gradient
-  boosting; no GPU, trains in seconds, exports cleanly to ONNX).
+- **Estimator:** scikit-learn `MLPClassifier` in a `StandardScaler` pipeline
+  (no GPU, trains in seconds, exports cleanly to ONNX). Tree ensembles were the
+  first choice, but skl2onnx's tree converters currently emit an invalid bool
+  attribute on newer onnx (see `requirements.txt`); the MLP still captures
+  nonlinear feature interaction and converts without issue.
 
 ### Honest limits (read before believing a metric)
 

@@ -120,7 +120,7 @@ export function compactScan(result: ScanResult, grade: ScanGrade): CompactScan {
     warnings: result.warnings,
     note:
       result.vulnerabilities.length > grade.topFixes.length
-        ? "Compact summary by design — run `npx fixly scan` for every finding."
+        ? "Compact summary by design — run `fixly scan` for every finding."
         : "Complete.",
   };
 }

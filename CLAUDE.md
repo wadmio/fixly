@@ -13,7 +13,7 @@ Fixly scans projects for vulnerable **npm dependencies** — direct **and transi
 ```
 apps/web         @fixly/web      Next.js 16 (App Router) web scanner — scans public GitHub repos
 apps/extension   fixly-vscode    VS Code extension — inline diagnostics, on-save rescan, webview report
-apps/cli         fixly-cli       CLI (bin: fixly) — vibecheck (A–F grade), scan (JSON/SARIF/--fail-on), check (verdicts)
+apps/cli         fixly-cli       CLI (bin: fixly) — vibecheck (A–F grade), scan (JSON/SARIF/--fail-on), check (verdicts), guard (pre-install check)
 apps/mcp         fixly-mcp       MCP server (stdio) — check_package / scan_project / suggest_safe_alternative for AI agents
 packages/core    @fixly/core     the scanner: GitHub fetch, parsing, OSV client, NVD enrichment, verdict engine
 packages/ui      @fixly/ui       shared React UI (Badge + severity helpers)
@@ -88,6 +88,7 @@ Public API in [packages/core/src/index.ts](packages/core/src/index.ts). Pipeline
 - **`fixly vibecheck [dir]`** — local scan (full tree) → `computeGrade` → grade box, headline, top fixes, share line. Exit 0/2.
 - **`fixly scan [dir|github-url]`** — human report, `--json`, `--sarif` (SARIF 2.1.0, [src/sarif.ts](apps/cli/src/sarif.ts): KEV/malicious escalate to `error`, transitive findings point at package-lock.json), `--fail-on critical|high|medium|low|any|never` (default never; **malware always fails a gate**), `--no-transitive`. Exit 0 ok / 1 gate / 2 error.
 - **`fixly check <pkg>[@version]`** — `checkPackage` verdict; exit 0 safe / 1 caution / 2 block (scriptable).
+- **`fixly guard -- <npm|pnpm|yarn|bun> <install|i|add> …`** ([src/commands/guard.ts](apps/cli/src/commands/guard.ts)) — verdict-checks the packages **named on the command line** before running the real install (block aborts exit 2, `--force` overrides; caution prompts, `--yes` for CI; bare lockfile installs pass through with a vibecheck nudge). A pre-install check, NOT a firewall — transitive deps and hand-edited manifests are not pre-checked. Gating flow tested in [tests/guard.test.ts](apps/cli/tests/guard.test.ts).
 - [src/local.ts](apps/cli/src/local.ts) shares the core pipeline for on-disk projects; [src/ui.ts](apps/cli/src/ui.ts) is zero-dep ANSI honoring NO_COLOR/non-TTY.
 
 ### apps/mcp (`fixly-mcp`)
@@ -104,7 +105,7 @@ Public API in [packages/core/src/index.ts](packages/core/src/index.ts). Pipeline
 - [src/scanner.ts](apps/extension/src/scanner.ts) reads the workspace `package.json`/`package-lock.json` and calls `scanProjectFiles` from `@fixly/core` (no duplicated scanner logic; honors the `fixly.includeTransitive` setting).
 - [src/extension.ts](apps/extension/src/extension.ts) wires commands, the "Fixly" output channel, a **status-bar item** (live severity counts, error/warning background), and **on-save rescans** (`onDidSaveTextDocument` on `package.json`/`package-lock.json`, 1.2s debounce, `fixly.scanOnSave` setting, quiet progress). A `scanning` flag prevents overlapping scans.
 - [src/diagnostics.ts](apps/extension/src/diagnostics.ts) — **inline alerts**: one `Diagnostic` per vulnerable **direct** dependency, anchored to its `"name":` key in package.json (position-aware; skips value-position matches), severity-mapped (critical/high→Error, medium→Warning, low→Info), `code` links to the advisory. Transitive findings stay in the panel/status bar (no line to point at).
-- [src/panel.ts](apps/extension/src/panel.ts) renders a webview report (summary cards, findings table with transitive chips + NVD scores, warnings, **Rescan / Copy Summary / Export JSON**); `FixlyPanel.updateIfOpen()` refreshes it after on-save scans without stealing focus.
+- [src/panel.ts](apps/extension/src/panel.ts) renders a webview report (**Fixly Score card** via `computeGrade` with top fixes, summary cards, findings table with transitive chips + NVD scores, warnings, **Rescan / Copy Summary / Export JSON**); `FixlyPanel.updateIfOpen()` refreshes it after on-save scans without stealing focus.
 - Bundled with esbuild ([esbuild.mjs](apps/extension/esbuild.mjs), `vscode` external) → `dist/extension.js`.
 
 ## Conventions

@@ -5,6 +5,9 @@ findings. Fixly extracts a project's dependency files, parses installed
 versions (direct **and transitive**, from the lock file tree), checks them
 against the **OSV** vulnerability database, cross-references CVEs against
 **NVD**, and shows the results — with scan-over-scan history in the browser.
+Beyond the web app and VS Code extension, the same core powers a **CLI**
+(`fixly vibecheck` / `scan` / `check` / `guard`) and an **MCP server** for AI
+coding agents — see section A3 below.
 
 ---
 
@@ -99,6 +102,27 @@ The bundled fixture above is the **safest** path; use these if GitHub is respons
    confirm Fixly **rescans automatically** and the status bar/diagnostics update.
    (Toggle via the `fixly.scanOnSave` setting.)
 
+### A3) CLI, guard, and MCP testing
+
+Build once (`pnpm build`), then from the repo root (demo targets live in
+[examples/](examples/README.md) — manifest-only, nothing installed):
+
+1. **Vibecheck (A–F grade):** `node apps/cli/dist/cli.js vibecheck examples/demo-app` —
+   grade **F**, the ⚡ **exploited in the wild (CISA KEV)** badge
+   (`mongo-express@0.53.0`, CVE-2019-10758), and the top fixes ranked by points
+   recovered. Then `... vibecheck examples/clean-app` — grade **A**, "Ship it."
+2. **Verdict check:** `node apps/cli/dist/cli.js check lodahs` — a real malicious
+   typosquat of `lodash`; expect **BLOCK** (OSV MAL-2025-25502, exit 2).
+   `check express` comes back SAFE (exit 0), and a made-up name is BLOCKED as a
+   likely AI hallucination.
+3. **Guard:** `node apps/cli/dist/cli.js guard -- npm install lodahs` — the
+   install is **blocked before npm runs**, with "did you mean: lodash". A safe
+   package passes through to the real package manager.
+4. **SARIF/CI gate:** `node apps/cli/dist/cli.js scan examples/demo-app --sarif > fixly.sarif`
+   and `... scan examples/demo-app --fail-on high` (exit 1 when a high+ finding exists).
+5. **MCP server:** `claude mcp add fixly -- node <repo>/apps/mcp/dist/index.js`,
+   then ask the agent to check a package — see [apps/mcp/README.md](apps/mcp/README.md).
+
 ### B) Terminal verification testing
 
 Run each command from the repo root:
@@ -106,10 +130,10 @@ Run each command from the repo root:
 | Command | What it proves | Expected success result |
 |---|---|---|
 | `pnpm validate` | The real scanner works end-to-end against live GitHub + OSV + NVD (vulnerable repo, clean repo, and every error case). | Prints reports: `OWASP/NodeGoat` ≈ 267 vulns across ~1,090 packages (36 direct + ~1,055 transitive), `slugify` 0 vulns, and clean `invalid_url` / `repo_not_found` / `no_package_json` errors. |
-| `pnpm test` | Parsing, OSV normalization, version matching, NVD enrichment, and history-diff logic are correct (unit tests, no network). | `77 passed` in `packages/core` + `8 passed` in `apps/web`. |
-| `pnpm lint` | Code style/quality rules pass across every package. | `Tasks: 4 successful`. |
-| `pnpm typecheck` | TypeScript types are sound across every package. | `Tasks: 4 successful`. |
-| `pnpm build` | The web app and VS Code extension both compile for production. | `Compiled successfully` (web) + extension `dist/extension.js` built. |
+| `pnpm test` | Parsing, OSV normalization, version matching, NVD enrichment, verdicts/grade, history-diff, CLI, and MCP protocol logic are correct (unit tests, no network). | All suites pass: `packages/core` (100+), `apps/web`, `apps/cli`, `apps/mcp`. |
+| `pnpm lint` | Code style/quality rules pass across every package. | All tasks successful. |
+| `pnpm typecheck` | TypeScript types are sound across every package. | All tasks successful. |
+| `pnpm build` | The web app, CLI, MCP server, and VS Code extension all compile for production. | `Compiled successfully` (web) + `dist/` bundles for cli/mcp/extension. |
 
 ---
 

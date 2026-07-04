@@ -15,7 +15,7 @@ lets the agent **ask first**.
 | `suggest_safe_alternative` | When a package was blocked | The likely-intended real package, **with its own verified verdict** |
 
 Responses are deliberately compact — a verdict and its reasons, never a raw
-finding dump. Full reports belong to `npx fixly scan` and the web app.
+finding dump. Full reports belong to `fixly scan` and the web app.
 
 ## Install
 
