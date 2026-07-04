@@ -46,6 +46,7 @@ const SEVERITY_PENALTY: Record<Severity, number> = {
   unknown: 1,
 };
 const KEV_PENALTY = 25; // on top of severity — exploited in the wild
+const POC_PENALTY = 10; // public exploit PoC exists — weaker than KEV, stronger than EPSS
 const HIGH_EPSS_PENALTY = 5; // EPSS ≥ 0.1 without a KEV listing
 const MALICIOUS_PENALTY = 100; // malware = automatic F
 
@@ -61,6 +62,9 @@ function penaltyFor(v: ScanVulnerability): { points: number; reason: string } {
   if (v.knownExploited) {
     points += KEV_PENALTY;
     qualifier += ", exploited in the wild (CISA KEV)";
+  } else if (v.pocCount !== null && v.pocCount > 0) {
+    points += POC_PENALTY;
+    qualifier += `, ${v.pocCount} public exploit PoC${v.pocCount === 1 ? "" : "s"} on GitHub`;
   } else if (v.epssScore !== null && v.epssScore >= 0.1) {
     points += HIGH_EPSS_PENALTY;
     qualifier += `, ${(v.epssScore * 100).toFixed(0)}% EPSS exploit probability`;
@@ -138,7 +142,9 @@ export function computeGrade(result: ScanResult): ScanGrade {
         ? `known malicious package — remove it`
         : vuln.knownExploited
           ? `${vuln.cveId ?? vuln.osvId} is exploited in the wild`
-          : `worst finding: ${vuln.cveId ?? vuln.osvId} (${vuln.severity})`,
+          : vuln.pocCount !== null && vuln.pocCount > 0
+            ? `${vuln.cveId ?? vuln.osvId} has ${vuln.pocCount} public exploit PoC${vuln.pocCount === 1 ? "" : "s"}`
+            : `worst finding: ${vuln.cveId ?? vuln.osvId} (${vuln.severity})`,
       points,
       command: vuln.malicious
         ? `npm uninstall ${vuln.package}`

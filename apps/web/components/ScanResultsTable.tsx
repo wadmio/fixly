@@ -5,6 +5,7 @@
 
 import { useMemo, useState } from "react";
 import type { ScanVulnerability } from "@fixly/core";
+import { isNewlyExploited, kevAgeDays } from "@fixly/core/kev";
 import { Badge } from "@fixly/ui";
 
 type DepFilter = "all" | "direct" | "transitive";
@@ -176,19 +177,35 @@ export default function ScanResultsTable({
                   {vuln.knownExploited && (
                     <p
                       className="mt-0.5 text-[10px] font-semibold text-red-400"
-                      title="This CVE is in CISA's Known Exploited Vulnerabilities catalog — confirmed exploitation in the wild. Top remediation priority."
+                      title={`This CVE is in a Known Exploited Vulnerabilities catalog — confirmed exploitation in the wild. Top remediation priority.${
+                        kevAgeDays(vuln.kevDateAdded) !== null
+                          ? ` Added ${kevAgeDays(vuln.kevDateAdded)} days ago.`
+                          : ""
+                      }`}
                     >
                       ⚡ exploited in the wild
+                      {isNewlyExploited(vuln.kevDateAdded) ? " · newly added" : ""}
                     </p>
                   )}
-                  {!vuln.knownExploited && vuln.epssScore !== null && vuln.epssScore >= 0.1 && (
+                  {!vuln.knownExploited && vuln.pocCount !== null && vuln.pocCount > 0 && (
                     <p
-                      className="mt-0.5 font-mono text-[10px] text-orange-400/80"
-                      title={`EPSS predicts a ${(vuln.epssScore * 100).toFixed(0)}% probability this CVE is exploited within 30 days.`}
+                      className="mt-0.5 text-[10px] font-semibold text-orange-400"
+                      title={`${vuln.pocCount} public proof-of-concept exploit repo(s) for this CVE on GitHub (nomi-sec/PoC-in-GitHub). Exploit code is publicly available.`}
                     >
-                      EPSS {(vuln.epssScore * 100).toFixed(0)}%
+                      ◆ {vuln.pocCount} public PoC{vuln.pocCount === 1 ? "" : "s"}
                     </p>
                   )}
+                  {!vuln.knownExploited &&
+                    !(vuln.pocCount !== null && vuln.pocCount > 0) &&
+                    vuln.epssScore !== null &&
+                    vuln.epssScore >= 0.1 && (
+                      <p
+                        className="mt-0.5 font-mono text-[10px] text-orange-400/80"
+                        title={`EPSS predicts a ${(vuln.epssScore * 100).toFixed(0)}% probability this CVE is exploited within 30 days.`}
+                      >
+                        EPSS {(vuln.epssScore * 100).toFixed(0)}%
+                      </p>
+                    )}
                 </td>
 
                 {/* Summary */}

@@ -31,7 +31,7 @@ export type {
   VerdictLevel,
   CheckPackageOptions,
 } from "./verdict";
-export { enrichWithIntel, clearIntelCache } from "./intel";
+export { enrichWithIntel, clearIntelCache, kevAgeDays, isNewlyExploited } from "./intel";
 export type { IntelEnrichment } from "./intel";
 export { fetchRegistryInfo, fetchLatestVersion, fetchDistTagVersion, clearRegistryCache } from "./registry";
 export type { RegistryInfo } from "./registry";

@@ -68,6 +68,8 @@ export interface CompactScan {
   findings: { total: number; bySeverity: Record<string, number> };
   maliciousPackages: string[];
   exploitedInTheWild: string[];
+  /** CVEs with public proof-of-concept exploits on GitHub (not yet KEV-listed). */
+  publicPocs: string[];
   topFixes: Array<{
     package: string;
     installedVersion: string;
@@ -94,6 +96,13 @@ export function compactScan(result: ScanResult, grade: ScanGrade): CompactScan {
         .map((v) => `${v.package}: ${v.cveId}`)
     ),
   ];
+  const publicPocs = [
+    ...new Set(
+      result.vulnerabilities
+        .filter((v) => !v.knownExploited && v.pocCount !== null && v.pocCount > 0 && v.cveId)
+        .map((v) => `${v.package}: ${v.cveId} (${v.pocCount} PoC${v.pocCount === 1 ? "" : "s"})`)
+    ),
+  ];
   return {
     project: result.repo,
     grade: grade.grade,
@@ -110,6 +119,7 @@ export function compactScan(result: ScanResult, grade: ScanGrade): CompactScan {
     },
     maliciousPackages: malicious,
     exploitedInTheWild: kev,
+    publicPocs,
     topFixes: grade.topFixes.slice(0, MAX_FIXES).map((f) => ({
       package: f.package,
       installedVersion: f.installedVersion,

@@ -2,7 +2,7 @@
 // (default: cwd) or a public GitHub URL. Human output by default; --json and
 // --sarif for machines; --fail-on gates pipelines with exit code 1.
 
-import { runScan, parseGitHubUrl, computeGrade, countBySeverity, type ScanResult, type Severity } from "@fixly/core";
+import { runScan, parseGitHubUrl, computeGrade, countBySeverity, isNewlyExploited, type ScanResult, type Severity } from "@fixly/core";
 import { scanLocalProject } from "../local";
 import { toSarif } from "../sarif";
 import { bold, dim, gray, green, red, severityLabel, gradeColor } from "../ui";
@@ -38,7 +38,8 @@ function findingLine(result: ScanResult): string[] {
   return result.vulnerabilities.map((v) => {
     const flags: string[] = [];
     if (v.malicious) flags.push(red(bold("MALICIOUS")));
-    if (v.knownExploited) flags.push(red("KEV"));
+    if (v.knownExploited) flags.push(red(isNewlyExploited(v.kevDateAdded) ? "KEV NEW" : "KEV"));
+    else if (v.pocCount !== null && v.pocCount > 0) flags.push(red(`PoC ${v.pocCount}`));
     else if (v.epssScore !== null && v.epssScore >= 0.1) {
       flags.push(`EPSS ${(v.epssScore * 100).toFixed(0)}%`);
     }

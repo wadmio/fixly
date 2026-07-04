@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { enrichWithIntel, clearIntelCache } from "../src/intel";
+import { enrichWithIntel, clearIntelCache, isNewlyExploited } from "../src/intel";
 import type { ScanVulnerability } from "../src/types";
 
 function finding(cveId: string | null): ScanVulnerability {
@@ -22,6 +22,8 @@ function finding(cveId: string | null): ScanVulnerability {
     knownExploited: false,
     epssScore: null,
     epssPercentile: null,
+    kevDateAdded: null,
+    pocCount: null,
     title: "t",
     description: "",
     references: [],
@@ -97,5 +99,76 @@ describe("enrichWithIntel", () => {
     vi.stubGlobal("fetch", fetchMock);
     await enrichWithIntel([finding(null)]);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("stamps kevDateAdded and flags newly-added KEV entries", async () => {
+    const recent = new Date(Date.now() - 5 * 86_400_000).toISOString().slice(0, 10);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("cisa.gov")
+          ? jsonRes({ vulnerabilities: [{ cveID: "CVE-2024-0001", dateAdded: recent }] })
+          : jsonRes({ data: [] })
+      )
+    );
+    const { vulnerabilities } = await enrichWithIntel([finding("CVE-2024-0001")]);
+    expect(vulnerabilities[0].knownExploited).toBe(true);
+    expect(vulnerabilities[0].kevDateAdded).toBe(recent);
+    expect(isNewlyExploited(vulnerabilities[0].kevDateAdded)).toBe(true);
+    expect(isNewlyExploited("2000-01-01")).toBe(false);
+  });
+
+  it("stamps public PoC counts from the nomi-sec feed (404 = 0)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("cisa.gov")) return jsonRes({ vulnerabilities: [] });
+        if (url.includes("first.org")) return jsonRes({ data: [] });
+        if (url.includes("PoC-in-GitHub")) {
+          if (url.includes("CVE-2021-0001")) {
+            return jsonRes([{ html_url: "a" }, { html_url: "b" }, { html_url: "c" }]);
+          }
+          return { status: 404, ok: false, json: async () => ({}), text: async () => "" };
+        }
+        return jsonRes({});
+      })
+    );
+    const { vulnerabilities } = await enrichWithIntel([
+      finding("CVE-2021-0001"),
+      finding("CVE-2020-0002"),
+    ]);
+    expect(vulnerabilities[0].pocCount).toBe(3);
+    expect(vulnerabilities[1].pocCount).toBe(0);
+  });
+
+  it("unions the VulnCheck KEV catalog when VULNCHECK_API_KEY is set", async () => {
+    const prev = process.env.VULNCHECK_API_KEY;
+    process.env.VULNCHECK_API_KEY = "test-key";
+    try {
+      let sawBearer = false;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init?: RequestInit) => {
+          if (url.includes("cisa.gov")) return jsonRes({ vulnerabilities: [] }); // CISA empty
+          if (url.includes("vulncheck.com")) {
+            const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+            if (auth === "Bearer test-key") sawBearer = true;
+            return jsonRes({
+              data: [{ cve: ["CVE-2099-0001"], date_added: "2099-01-01" }],
+              _meta: { total_pages: 1 },
+            });
+          }
+          return jsonRes({ data: [] });
+        })
+      );
+      const { vulnerabilities } = await enrichWithIntel([finding("CVE-2099-0001")]);
+      expect(sawBearer).toBe(true);
+      expect(vulnerabilities[0].knownExploited).toBe(true); // from VulnCheck, not CISA
+      expect(vulnerabilities[0].kevDateAdded).toBe("2099-01-01");
+    } finally {
+      if (prev === undefined) delete process.env.VULNCHECK_API_KEY;
+      else process.env.VULNCHECK_API_KEY = prev;
+      clearIntelCache();
+    }
   });
 });

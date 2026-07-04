@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./url": "./src/github-url.ts",
     "./compare": "./src/compare.ts",
+    "./kev": "./src/kev.ts",
     "./node": "./src/local.ts"
   },
   "scripts": {

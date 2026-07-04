@@ -21,6 +21,8 @@ function vuln(over: Partial<ScanVulnerability> & { severity: Severity }): ScanVu
     knownExploited: false,
     epssScore: null,
     epssPercentile: null,
+    kevDateAdded: null,
+    pocCount: null,
     title: "t",
     description: "",
     references: [],
@@ -65,6 +67,17 @@ describe("computeGrade", () => {
     const kev = computeGrade(result([vuln({ severity: "high", knownExploited: true })]));
     expect(kev.score).toBeLessThan(plain.score - 20);
     expect(kev.breakdown[0].reason).toContain("exploited in the wild");
+  });
+
+  it("a public PoC is penalized above EPSS but below KEV", () => {
+    const base = computeGrade(result([vuln({ severity: "medium" })])).score;
+    const epss = computeGrade(result([vuln({ severity: "medium", epssScore: 0.5 })])).score;
+    const poc = computeGrade(result([vuln({ severity: "medium", pocCount: 3 })]));
+    const kev = computeGrade(result([vuln({ severity: "medium", knownExploited: true })])).score;
+    expect(epss).toBeLessThan(base);
+    expect(poc.score).toBeLessThan(epss);
+    expect(kev).toBeLessThan(poc.score);
+    expect(poc.breakdown[0].reason).toContain("public exploit PoC");
   });
 
   it("top fixes rank by recoverable points and emit copy-paste commands", () => {

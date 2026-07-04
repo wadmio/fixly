@@ -19,9 +19,10 @@ function levelFor(v: ScanVulnerability): SarifLevel {
 }
 
 function messageFor(v: ScanVulnerability): string {
+  const poc = !v.knownExploited && v.pocCount ? `, ${v.pocCount} public PoC(s)` : "";
   const parts = [
     `${v.package}@${v.installedVersion}: ${v.title}`,
-    `[${v.severity}${v.cveId ? `, ${v.cveId}` : ""}${v.knownExploited ? ", exploited in the wild (CISA KEV)" : ""}${v.malicious ? ", MALICIOUS PACKAGE" : ""}]`,
+    `[${v.severity}${v.cveId ? `, ${v.cveId}` : ""}${v.knownExploited ? ", exploited in the wild (CISA KEV)" : ""}${poc}${v.malicious ? ", MALICIOUS PACKAGE" : ""}]`,
   ];
   if (v.fixedVersion) parts.push(`Fix: upgrade to ${v.fixedVersion}.`);
   if (v.dependencyType === "transitive") parts.push("(transitive dependency)");
@@ -74,7 +75,9 @@ export function toSarif(result: ScanResult, version: string): object {
             fixedVersion: v.fixedVersion ?? undefined,
             dependencyType: v.dependencyType,
             knownExploited: v.knownExploited,
+            kevDateAdded: v.kevDateAdded ?? undefined,
             epssScore: v.epssScore ?? undefined,
+            pocCount: v.pocCount ?? undefined,
             malicious: v.malicious,
           },
         })),

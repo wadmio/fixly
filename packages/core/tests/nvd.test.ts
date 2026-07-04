@@ -22,6 +22,8 @@ function finding(cveId: string | null, pkg = "pkg"): ScanVulnerability {
     knownExploited: false,
     epssScore: null,
     epssPercentile: null,
+    kevDateAdded: null,
+    pocCount: null,
     title: "t",
     description: "",
     references: [],

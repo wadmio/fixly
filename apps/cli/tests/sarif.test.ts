@@ -21,6 +21,8 @@ function vuln(over: Partial<ScanVulnerability> & { severity: Severity }): ScanVu
     knownExploited: false,
     epssScore: null,
     epssPercentile: null,
+    kevDateAdded: null,
+    pocCount: null,
     title: "Prototype pollution",
     description: "",
     references: ["https://example.com/advisory"],

@@ -69,6 +69,13 @@ export interface ScanVulnerability {
   epssScore: number | null;
   /** EPSS percentile (0–1) relative to all scored CVEs. */
   epssPercentile: number | null;
+  /** ISO date the CVE was added to a KEV catalog (CISA, or VulnCheck when
+   *  enabled), or null. Powers the "newly known-exploited" freshness marker. */
+  kevDateAdded: string | null;
+  /** Count of public proof-of-concept exploit repos on GitHub (nomi-sec
+   *  PoC-in-GitHub). null when the PoC feed wasn't consulted; 0 when none exist.
+   *  A published PoC sits between EPSS prediction and confirmed exploitation. */
+  pocCount: number | null;
   title: string;
   description: string;
   references: string[];

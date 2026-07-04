@@ -22,6 +22,8 @@ function vuln(over: Partial<ScanVulnerability> = {}): ScanVulnerability {
     knownExploited: false,
     epssScore: null,
     epssPercentile: null,
+    kevDateAdded: null,
+    pocCount: null,
     title: "A vulnerability",
     description: "",
     references: ["https://example.com/advisory"],

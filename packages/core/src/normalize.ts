@@ -224,6 +224,8 @@ export function normalizeOsvResults(
     knownExploited: false,
     epssScore: null,
     epssPercentile: null,
+    kevDateAdded: null,
+    pocCount: null,
     title: vuln.summary ?? vuln.id,
     description: vuln.details ?? "",
     references: safeReferenceUrls(vuln.references),
