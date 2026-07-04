@@ -35,6 +35,13 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Network-free smoke test: proves the built CLI bundle runs (shebang,
+      # ESM entrypoint guard, arg parsing) without depending on live OSV/registry.
+      - name: CLI smoke test
+        run: |
+          node apps/cli/dist/cli.js --version
+          node apps/cli/dist/cli.js --help
+
   # The ml/ lab is Python-only, but its feature extraction is a hard contract
   # with packages/core/src/name-model.ts — the pytest suite pins feature values
   # so drift between the two implementations breaks loudly.
