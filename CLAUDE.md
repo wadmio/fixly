@@ -14,6 +14,7 @@ Fixly scans projects for vulnerable **npm dependencies** — direct **and transi
 apps/web         @fixly/web      Next.js 16 (App Router) web scanner — scans public GitHub repos
 apps/extension   fixly-vscode    VS Code extension — inline diagnostics, on-save rescan, webview report
 apps/cli         fixly-cli       CLI (bin: fixly) — vibecheck (A–F grade), scan (JSON/SARIF/--fail-on), check (verdicts)
+apps/mcp         fixly-mcp       MCP server (stdio) — check_package / scan_project / suggest_safe_alternative for AI agents
 packages/core    @fixly/core     the scanner: GitHub fetch, parsing, OSV client, NVD enrichment, verdict engine
 packages/ui      @fixly/ui       shared React UI (Badge + severity helpers)
 ```
@@ -80,6 +81,14 @@ Public API in [packages/core/src/index.ts](packages/core/src/index.ts). Pipeline
 - **`fixly scan [dir|github-url]`** — human report, `--json`, `--sarif` (SARIF 2.1.0, [src/sarif.ts](apps/cli/src/sarif.ts): KEV/malicious escalate to `error`, transitive findings point at package-lock.json), `--fail-on critical|high|medium|low|any|never` (default never; **malware always fails a gate**), `--no-transitive`. Exit 0 ok / 1 gate / 2 error.
 - **`fixly check <pkg>[@version]`** — `checkPackage` verdict; exit 0 safe / 1 caution / 2 block (scriptable).
 - [src/local.ts](apps/cli/src/local.ts) shares the core pipeline for on-disk projects; [src/ui.ts](apps/cli/src/ui.ts) is zero-dep ANSI honoring NO_COLOR/non-TTY.
+
+### apps/mcp (`fixly-mcp`)
+
+- MCP server over stdio ([src/index.ts](apps/mcp/src/index.ts)); tools defined in [src/server.ts](apps/mcp/src/server.ts) via `@modelcontextprotocol/sdk` + zod. Tool descriptions are written FOR the model (when to call, what verdicts mean).
+- **Compact-response contract** ([src/responses.ts](apps/mcp/src/responses.ts)): tools return verdict-shaped JSON (≤5 reasons, ≤5 fixes, malicious/KEV callouts) — NEVER raw finding dumps; agent context is scarce. Keep this contract when adding tools.
+- Local scanning shared via **`@fixly/core/node`** (`scanLocalProject` — node:fs, kept out of the root barrel; CLI re-exports it).
+- Tests are protocol-level: a real MCP `Client` over `InMemoryTransport` with fetch mocked ([tests/server.test.ts](apps/mcp/tests/server.test.ts)).
+- Install for Claude Code: `claude mcp add fixly -- node <repo>/apps/mcp/dist/index.js` (see [apps/mcp/README.md](apps/mcp/README.md)).
 
 ### apps/extension (`fixly-vscode`)
 

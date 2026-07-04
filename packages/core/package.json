@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./url": "./src/github-url.ts",
-    "./compare": "./src/compare.ts"
+    "./compare": "./src/compare.ts",
+    "./node": "./src/local.ts"
   },
   "scripts": {
     "lint": "eslint .",
