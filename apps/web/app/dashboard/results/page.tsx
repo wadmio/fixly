@@ -1,6 +1,14 @@
 import Link from "next/link";
-import { runScan, scanProjectFiles, findingKey, countBySeverity, type ScanResult } from "@fixly/core";
+import {
+  runScan,
+  scanProjectFiles,
+  findingKey,
+  countBySeverity,
+  computeGrade,
+  type ScanResult,
+} from "@fixly/core";
 import ReportSummary from "@/components/ReportSummary";
+import ScoreCard from "@/components/ScoreCard";
 import ScanResultsTable from "@/components/ScanResultsTable";
 import ScanForm from "@/components/ScanForm";
 import ScanHistoryRecorder from "@/components/ScanHistoryRecorder";
@@ -121,6 +129,8 @@ export default async function ResultsPage(props: {
       ) : (
         <>
           <ReportSummary result={result} />
+
+          <ScoreCard grade={computeGrade(result)} />
 
           <ScanHistoryRecorder entry={historyEntry(result, repo, fixture)} />
 

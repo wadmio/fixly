@@ -91,6 +91,14 @@ export default function ScanResultsTable({
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-1.5">
                     <p className="font-medium text-white">{vuln.package}</p>
+                    {vuln.malicious && (
+                      <span
+                        className="rounded border border-red-800 bg-red-950/60 px-1 py-px text-[10px] font-semibold text-red-400"
+                        title="OSV flags this package itself as malware — remove it; there is nothing to 'upgrade'."
+                      >
+                        ☠ MALICIOUS
+                      </span>
+                    )}
                     {vuln.dependencyType === "transitive" && (
                       <span
                         className="rounded border border-[#D1D5DB]/20 px-1 py-px text-[10px] text-[#BFC3C7]/70"
@@ -163,6 +171,22 @@ export default function ScanResultsTable({
                       title={`NVD independently scores this CVE ${vuln.nvd.cvssScore.toFixed(1)}${vuln.nvd.severity ? ` (${vuln.nvd.severity})` : ""}.`}
                     >
                       NVD {vuln.nvd.cvssScore.toFixed(1)}
+                    </p>
+                  )}
+                  {vuln.knownExploited && (
+                    <p
+                      className="mt-0.5 text-[10px] font-semibold text-red-400"
+                      title="This CVE is in CISA's Known Exploited Vulnerabilities catalog — confirmed exploitation in the wild. Top remediation priority."
+                    >
+                      ⚡ exploited in the wild
+                    </p>
+                  )}
+                  {!vuln.knownExploited && vuln.epssScore !== null && vuln.epssScore >= 0.1 && (
+                    <p
+                      className="mt-0.5 font-mono text-[10px] text-orange-400/80"
+                      title={`EPSS predicts a ${(vuln.epssScore * 100).toFixed(0)}% probability this CVE is exploited within 30 days.`}
+                    >
+                      EPSS {(vuln.epssScore * 100).toFixed(0)}%
                     </p>
                   )}
                 </td>

@@ -31,10 +31,13 @@ const VULNERABLE_DEPS: Record<string, string> = {
 // Present only in the lock file tree (NOT declared in package.json) → these
 // exercise transitive detection. Real old releases with real OSV advisories:
 // request@2.88.0 (CVE-2023-28155 SSRF) pulls tough-cookie@2.5.0
-// (CVE-2023-26136 prototype pollution).
+// (CVE-2023-26136 prototype pollution). "lodahs" is a real typosquat of
+// lodash that OSV flags as MALICIOUS (MAL-2025-25502) — nothing is installed
+// here (fixtures are plain JSON); it exists to demo malware detection.
 const VULNERABLE_TRANSITIVE: Record<string, string> = {
   request: "2.88.0",
   "tough-cookie": "2.5.0",
+  lodahs: "0.0.1-security",
 };
 
 const lockPackages: Record<string, { version: string }> = {};
