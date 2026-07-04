@@ -8,6 +8,9 @@ await build({
   format: "esm",
   outfile: "dist/cli.js",
   banner: { js: "#!/usr/bin/env node" },
+  // Optional native module — loaded lazily from node_modules at runtime, never
+  // bundled (it ships platform-specific .node binaries).
+  external: ["onnxruntime-node"],
   sourcemap: true,
   logLevel: "info",
 });

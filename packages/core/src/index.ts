@@ -38,6 +38,8 @@ export type { RegistryInfo } from "./registry";
 export { findTyposquatTarget, editDistance } from "./typosquat";
 export type { TyposquatMatch } from "./typosquat";
 export { isPopularPackage, POPULAR_PACKAGES } from "./popular-packages";
+export { scoreNameRisk, isNameModelAvailable, buildNameFeatures, resetNameModel } from "./name-model";
+export type { NameRiskResult } from "./name-model";
 export { computeGrade } from "./grade";
 export type { ScanGrade, Grade, TopFix, GradeBreakdownEntry } from "./grade";
 

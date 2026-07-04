@@ -11,6 +11,8 @@ await build({
     // ESM bundles need an explicit require shim for CJS deps inside the SDK.
     js: '#!/usr/bin/env node\nimport { createRequire } from "node:module"; const require = createRequire(import.meta.url);',
   },
+  // Optional native module — loaded lazily from node_modules at runtime.
+  external: ["onnxruntime-node"],
   sourcemap: true,
   logLevel: "info",
 });

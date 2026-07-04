@@ -19,6 +19,7 @@ import { enrichWithIntel } from "./intel";
 import { fetchRegistryInfo, fetchLatestVersion, type RegistryInfo } from "./registry";
 import { findTyposquatTarget } from "./typosquat";
 import { isPopularPackage } from "./popular-packages";
+import { scoreNameRisk } from "./name-model";
 import type { ScanVulnerability, Severity } from "./types";
 
 export type VerdictLevel = "safe" | "caution" | "block";
@@ -34,6 +35,10 @@ export interface PackageSignals {
   hasInstallScripts: boolean | null;
   maintainers: number | null;
   typosquatOf: string | null;
+  /** ML name-risk score (0–1) from the ONNX model, or null when unavailable. */
+  nameRiskScore: number | null;
+  /** True when the ML model flagged the name above its tuned threshold. */
+  nameRiskFlagged: boolean;
   maliciousIds: string[];
   vulnerabilityCounts: Record<Severity, number>;
   knownExploitedCves: string[];
@@ -98,8 +103,10 @@ export async function checkPackage(
     }
   }
 
-  // --- Typosquat / hallucination adjacency (pure string analysis).
+  // --- Typosquat / hallucination adjacency (pure string analysis) + the
+  // optional ML name-risk model (trained in ml/, runs via ONNX when present).
   const typosquat = popular ? null : findTyposquatTarget(name);
+  const nameRisk = popular ? null : await scoreNameRisk(name);
 
   // --- The version to evaluate. A name-only check evaluates what an install
   // would fetch TODAY (the latest version) — never the package's entire
@@ -165,6 +172,8 @@ export async function checkPackage(
     hasInstallScripts: registry?.hasInstallScripts ?? null,
     maintainers: registry?.maintainers ?? null,
     typosquatOf: typosquat?.target ?? null,
+    nameRiskScore: nameRisk?.score ?? null,
+    nameRiskFlagged: nameRisk?.flagged ?? false,
     maliciousIds,
     vulnerabilityCounts: counts,
     knownExploitedCves: [...new Set(knownExploitedCves)],
@@ -257,6 +266,19 @@ function synthesize(
   }
   if (s.deprecated) {
     caution.push(`Deprecated by its maintainer — no future security fixes.`);
+  }
+  // ML name-risk corroboration: only surfaced when the model is confident AND
+  // the package is obscure/new, so it reinforces rather than cries wolf on
+  // established packages with unusual names.
+  if (
+    s.nameRiskFlagged &&
+    !s.popular &&
+    block.length === 0 &&
+    (s.weeklyDownloads === null || s.weeklyDownloads < LOW_DOWNLOADS_PER_WEEK)
+  ) {
+    caution.push(
+      `Fixly's name-risk model flags this name as resembling known-malicious packages (${((s.nameRiskScore ?? 0) * 100).toFixed(0)}% confidence).`
+    );
   }
 
   if (block.length > 0) return { verdict: "block", reasons: [...block, ...caution] };

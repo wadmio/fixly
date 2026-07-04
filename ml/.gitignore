@@ -1,0 +1,9 @@
+.venv/
+data/
+__pycache__/
+*.pyc
+train.log
+train_result.txt
+# Keep models/ — the exported ONNX + meta are committed so Node inference
+# works from a clean checkout (they're small). Delete the next line to ignore.
+!models/

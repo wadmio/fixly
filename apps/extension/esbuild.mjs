@@ -9,7 +9,10 @@ await build({
   platform: "node",
   target: "node20",
   format: "cjs",
-  external: ["vscode"],
+  // `vscode` is provided by the host; onnxruntime-node is an optional native
+  // module loaded lazily at runtime (the extension ships without the ML model,
+  // so name-risk scoring simply stays off in the editor).
+  external: ["vscode", "onnxruntime-node"],
   sourcemap: true,
   logLevel: "info",
 });

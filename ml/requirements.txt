@@ -1,0 +1,9 @@
+# Pinned to a known-good ONNX export matrix (skl2onnx 1.20 + onnx 1.22 export
+# the MLP pipeline cleanly; tree-ensemble converters currently emit an invalid
+# bool attribute on newer onnx).
+numpy>=2.0
+scikit-learn>=1.5
+skl2onnx>=1.20
+onnx>=1.22
+onnxruntime>=1.20
+pytest>=8.0
