@@ -35,6 +35,43 @@ describe("normalizeOsvResults — severity", () => {
     expect(v.severity).toBe("unknown");
     expect(v.cvssScore).toBeNull();
   });
+
+  it("derives a severity band from a CVSS v4 vector instead of returning unknown", () => {
+    // Full-impact, network, no barriers → critical band. No numeric score is
+    // fabricated (v4 base score needs the official lookup table), but the
+    // vector string is surfaced.
+    const v = normalizeOne({
+      id: "CVE-2025-9",
+      severity: [
+        { type: "CVSS_V4", score: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N" },
+      ],
+    });
+    expect(v.severity).toBe("critical");
+    expect(v.cvssScore).toBeNull();
+    expect(v.cvssVector).toContain("CVSS:4.0");
+  });
+
+  it("bands a low-impact CVSS v4 vector as low, not critical", () => {
+    const v = normalizeOne({
+      id: "CVE-2025-10",
+      severity: [
+        { type: "CVSS_V4", score: "CVSS:4.0/AV:P/AC:H/AT:P/PR:H/UI:A/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N" },
+      ],
+    });
+    expect(v.severity).toBe("low");
+  });
+
+  it("prefers a computable v3 vector over a v4 vector listed first", () => {
+    const v = normalizeOne({
+      id: "CVE-2025-11",
+      severity: [
+        { type: "CVSS_V4", score: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N" },
+        { type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" },
+      ],
+    });
+    expect(v.severity).toBe("critical");
+    expect(v.cvssScore).toBe(9.8);
+  });
 });
 
 describe("normalizeOsvResults — fields", () => {
