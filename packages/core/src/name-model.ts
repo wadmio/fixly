@@ -10,9 +10,19 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-const MODELS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "ml", "models");
-const MODEL_PATH = join(MODELS_DIR, "name-risk.onnx");
-const META_PATH = join(MODELS_DIR, "name-risk.meta.json");
+// Resolve the model paths lazily. In an ESM bundle (CLI, MCP) `import.meta.url`
+// is a real file URL and this points at repo/ml/models. In a CJS bundle (the
+// VS Code extension) esbuild sets `import.meta` to `{}`, so `fileURLToPath`
+// would throw — that MUST NOT happen at module load. Keeping this inside a
+// function called from the guarded loader turns "no model here" into the
+// intended graceful fallback instead of a crash that breaks extension startup.
+function resolveModelPaths(): { modelPath: string; metaPath: string } {
+  const modelsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "ml", "models");
+  return {
+    modelPath: join(modelsDir, "name-risk.onnx"),
+    metaPath: join(modelsDir, "name-risk.meta.json"),
+  };
+}
 
 interface ModelMeta {
   feature_names: string[];
@@ -149,13 +159,16 @@ async function load() {
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
     try {
+      // Path resolution is inside the try: in a CJS bundle `import.meta.url`
+      // is undefined and this throws → caught → null → rule-based fallback.
+      const { modelPath, metaPath } = resolveModelPaths();
       const [ortNs, metaRaw, modelBytes] = await Promise.all([
         // Optional dependency — absent in the base install. The dynamic
         // specifier keeps TS from resolving its (unshipped) types while still
         // loading it at runtime when present.
         import(/* @vite-ignore */ "onnxruntime-node" as string) as Promise<Record<string, unknown>>,
-        readFile(META_PATH, "utf8"),
-        readFile(MODEL_PATH),
+        readFile(metaPath, "utf8"),
+        readFile(modelPath),
       ]);
       // CJS/ESM interop: InferenceSession may sit on the namespace or its
       // .default depending on how the loader wrapped the native module.
