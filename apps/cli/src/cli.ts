@@ -10,6 +10,7 @@ import { parseArgs } from "node:util";
 import { vibecheck } from "./commands/vibecheck";
 import { scan, type FailOn } from "./commands/scan";
 import { check } from "./commands/check";
+import { guard } from "./commands/guard";
 import { bold, dim, red } from "./ui";
 
 const VERSION = "0.1.0";
@@ -21,6 +22,7 @@ const HELP = `
     fixly vibecheck [dir]             grade your project (A–F) + top fixes
     fixly scan [dir | github-url]     full vulnerability report
     fixly check <pkg>[@version]       is this package safe to install?
+    fixly guard -- npm install <pkg>  firewall: verdict-check, then install
 
   ${bold("Options")}
     --json                machine-readable output (all commands)
@@ -28,6 +30,8 @@ const HELP = `
     --fail-on <level>     exit 1 at/above: critical|high|medium|low|any|never
                           (scan; default: never. Malware always fails a gate.)
     --no-transitive       direct dependencies only (scan/vibecheck)
+    --yes                 auto-accept caution verdicts (guard, CI)
+    --force               override BLOCK verdicts (guard; you own the risk)
     -v, --version         print version
     -h, --help            this help
 
@@ -37,13 +41,30 @@ const HELP = `
   ${bold("Examples")}
     npx fixly vibecheck
     npx fixly check lodahs
+    fixly guard -- npm install express lodahs
     fixly scan https://github.com/OWASP/NodeGoat --fail-on high
     fixly scan --sarif > fixly.sarif
 `;
 
 async function main(): Promise<number> {
+  const rawArgs = process.argv.slice(2);
+
+  // `guard` owns everything after itself — the wrapped command's flags
+  // (e.g. `npm install -D`) must NOT be parsed as fixly flags.
+  if (rawArgs[0] === "guard") {
+    const guardArgs = rawArgs.slice(1);
+    const yes = guardArgs.includes("--yes");
+    const force = guardArgs.includes("--force");
+    const separator = guardArgs.indexOf("--");
+    const wrapped =
+      separator !== -1
+        ? guardArgs.slice(separator + 1)
+        : guardArgs.filter((a) => a !== "--yes" && a !== "--force");
+    return guard({ argv: wrapped, yes, force });
+  }
+
   const { values, positionals } = parseArgs({
-    args: process.argv.slice(2),
+    args: rawArgs,
     allowPositionals: true,
     options: {
       json: { type: "boolean", default: false },

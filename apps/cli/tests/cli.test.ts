@@ -3,6 +3,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePackageSpec } from "../src/commands/check";
+import { parseInstallCommand } from "../src/commands/guard";
 import { scanLocalProject } from "../src/local";
 
 describe("parsePackageSpec", () => {
@@ -15,6 +16,47 @@ describe("parsePackageSpec", () => {
   it("handles bare names, scoped and not", () => {
     expect(parsePackageSpec("lodash")).toEqual({ name: "lodash", version: null });
     expect(parsePackageSpec("@scope/pkg")).toEqual({ name: "@scope/pkg", version: null });
+  });
+});
+
+describe("parseInstallCommand", () => {
+  it("recognizes npm/pnpm/yarn/bun install and add", () => {
+    expect(parseInstallCommand(["npm", "install", "lodash"])?.specs).toEqual(["lodash"]);
+    expect(parseInstallCommand(["pnpm", "add", "-D", "vitest"])?.specs).toEqual(["vitest"]);
+    expect(parseInstallCommand(["yarn", "add", "react", "react-dom"])?.specs).toEqual([
+      "react",
+      "react-dom",
+    ]);
+    expect(parseInstallCommand(["bun", "i", "zod@3.25.0"])?.specs).toEqual(["zod@3.25.0"]);
+  });
+
+  it("rejects non-install commands and unknown binaries", () => {
+    expect(parseInstallCommand(["npm", "run", "build"])).toBeNull();
+    expect(parseInstallCommand(["make", "install"])).toBeNull();
+    expect(parseInstallCommand([])).toBeNull();
+  });
+
+  it("passes flags through and separates uncheckable specs", () => {
+    const parsed = parseInstallCommand([
+      "npm",
+      "install",
+      "--save-dev",
+      "lodash",
+      "git+https://github.com/x/y.git",
+      "file:../local-pkg",
+      "./relative",
+    ]);
+    expect(parsed?.specs).toEqual(["lodash"]);
+    expect(parsed?.uncheckable).toEqual([
+      "git+https://github.com/x/y.git",
+      "file:../local-pkg",
+      "./relative",
+    ]);
+    expect(parsed?.args).toContain("--save-dev");
+  });
+
+  it("treats a bare lockfile install as having no specs", () => {
+    expect(parseInstallCommand(["npm", "install"])?.specs).toEqual([]);
   });
 });
 
