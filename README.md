@@ -6,8 +6,9 @@ Fixly finds vulnerable and malicious third-party **npm** dependencies. It does *
 websites — it scans a project's dependency manifests (`package.json` / `package-lock.json`), checks
 every installed package (direct **and transitive**) against the [OSV](https://osv.dev) vulnerability
 database, cross-references CVEs against [NVD](https://nvd.nist.gov) for an independent severity
-opinion, and layers on exploit intelligence ([CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog),
-[FIRST EPSS](https://www.first.org/epss/)) plus a package-verdict engine that catches malicious,
+opinion, and layers on exploit intelligence ([CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)
++ optional [VulnCheck KEV](https://vulncheck.com), [FIRST EPSS](https://www.first.org/epss/), and public
+proof-of-concept counts from [nomi-sec PoC-in-GitHub](https://github.com/nomi-sec/PoC-in-GitHub)) plus a package-verdict engine that catches malicious,
 typosquatted, and hallucinated package names **before** they get installed.
 
 Fixly ships **five surfaces over one shared core** (`@fixly/core`):
@@ -40,8 +41,10 @@ Fixly ships **five surfaces over one shared core** (`@fixly/core`):
 - Public GitHub repositories (web) and local projects (CLI, extension, MCP)
 - OSV vulnerability data: ID/CVE, severity, CVSS, fix version, summary — with
   best-effort **NVD cross-referencing** per CVE (second CVSS opinion, rate-limit aware)
-- Exploit intelligence on findings: **CISA KEV** (known-exploited) and **EPSS**
-  (exploit probability) — these drive the Fixly Score and CI gates
+- Exploit intelligence on findings: **CISA KEV** (known-exploited, with a
+  "newly added" freshness marker), optional **VulnCheck KEV** (wider catalog,
+  `VULNCHECK_API_KEY`), **EPSS** (exploit probability), and **public PoC counts**
+  (nomi-sec PoC-in-GitHub) — these drive the Fixly Score and CI gates
 - Per-package **verdicts** (SAFE/CAUTION/BLOCK): known-malware (`MAL-*`) records,
   nonexistent names (AI-hallucination signal), typosquat/slopsquat detection,
   registry health (age, downloads, deprecation, install scripts), and an optional
@@ -145,6 +148,7 @@ without a `package.json` each return a clear, specific error.
 
 ```bash
 fixly vibecheck                      # A–F grade for the project in cwd + the fixes that matter
+fixly vibecheck --fail-under B       # CI gate: exit 1 if the Fixly Score is below B
 fixly scan --sarif > fixly.sarif     # SARIF 2.1.0 for code-scanning UIs
 fixly scan --fail-on high            # CI gate (malware always fails a gate)
 fixly check lodahs                   # SAFE/CAUTION/BLOCK — catches the typo before install
