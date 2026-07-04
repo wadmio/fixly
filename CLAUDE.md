@@ -13,7 +13,8 @@ Fixly scans projects for vulnerable **npm dependencies** — direct **and transi
 ```
 apps/web         @fixly/web      Next.js 16 (App Router) web scanner — scans public GitHub repos
 apps/extension   fixly-vscode    VS Code extension — inline diagnostics, on-save rescan, webview report
-packages/core    @fixly/core     the scanner: GitHub fetch, parsing, OSV client, NVD enrichment, normalization
+apps/cli         fixly-cli       CLI (bin: fixly) — vibecheck (A–F grade), scan (JSON/SARIF/--fail-on), check (verdicts)
+packages/core    @fixly/core     the scanner: GitHub fetch, parsing, OSV client, NVD enrichment, verdict engine
 packages/ui      @fixly/ui       shared React UI (Badge + severity helpers)
 ```
 
@@ -71,6 +72,14 @@ Public API in [packages/core/src/index.ts](packages/core/src/index.ts). Pipeline
 - [app/api/scan/route.ts](apps/web/app/api/scan/route.ts) — `POST {repoUrl}` → `runScan`; maps structured error codes to HTTP status. Programmatic entry, not used by the UI.
 - [app/page.tsx](apps/web/app/page.tsx) — marketing landing.
 - Consumes `@fixly/core`/`@fixly/ui` as **source** via `transpilePackages` in [next.config.ts](apps/web/next.config.ts). Tailwind scans the UI package via an `@source` directive in [app/globals.css](apps/web/app/globals.css).
+
+### apps/cli (`fixly-cli`, bin `fixly`)
+
+- [src/cli.ts](apps/cli/src/cli.ts) — `node:util` parseArgs dispatcher (zero runtime deps; esbuild-bundled ESM with shebang → `dist/cli.js`; run built CLI via `node apps/cli/dist/cli.js`).
+- **`fixly vibecheck [dir]`** — local scan (full tree) → `computeGrade` → grade box, headline, top fixes, share line. Exit 0/2.
+- **`fixly scan [dir|github-url]`** — human report, `--json`, `--sarif` (SARIF 2.1.0, [src/sarif.ts](apps/cli/src/sarif.ts): KEV/malicious escalate to `error`, transitive findings point at package-lock.json), `--fail-on critical|high|medium|low|any|never` (default never; **malware always fails a gate**), `--no-transitive`. Exit 0 ok / 1 gate / 2 error.
+- **`fixly check <pkg>[@version]`** — `checkPackage` verdict; exit 0 safe / 1 caution / 2 block (scriptable).
+- [src/local.ts](apps/cli/src/local.ts) shares the core pipeline for on-disk projects; [src/ui.ts](apps/cli/src/ui.ts) is zero-dep ANSI honoring NO_COLOR/non-TTY.
 
 ### apps/extension (`fixly-vscode`)
 

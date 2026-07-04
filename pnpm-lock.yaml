@@ -30,6 +30,28 @@ importers:
         specifier: ^8.46.2
         version: 8.60.1(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
 
+  apps/cli:
+    dependencies:
+      '@fixly/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.0
+        version: 20.19.42
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
+      eslint:
+        specifier: ^9.39.1
+        version: 9.39.4(jiti@2.7.0)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.6(@types/node@20.19.42)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(tsx@4.22.4)
+
   apps/extension:
     dependencies:
       '@fixly/core':
