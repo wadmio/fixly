@@ -29,6 +29,15 @@ export interface ScanVulnerability {
   severity: Severity;
   cvssVector: string | null;
   cvssScore: number | null;
+  /** Affected version ranges from OSV, rendered for display (e.g. ">=0 <4.17.12"). */
+  affectedRanges: string[];
+  /** Whether `installedVersion` falls inside an OSV affected range, verified
+   *  locally. null when the ranges could not be evaluated (limited confidence). */
+  versionInRange: boolean | null;
+  /** How the checked version was obtained: an exact `package-lock.json` entry,
+   *  or the minimum of the declared range when no lock file was present
+   *  (the latter is approximate). */
+  versionSource: "lockfile" | "range-minimum";
   title: string;
   description: string;
   references: string[];

@@ -1,5 +1,6 @@
 import type { OsvVuln } from "./osv";
 import type { ScanVulnerability, Severity } from "./types";
+import { formatAffectedRanges, isVersionInOsvRanges } from "./matching";
 
 // ---------------------------------------------------------------------------
 // CVSS v3 base score calculator
@@ -116,7 +117,8 @@ function extractCvssScore(vuln: OsvVuln): number | null {
 export function normalizeOsvResults(
   packageName: string,
   installedVersion: string,
-  vulns: OsvVuln[]
+  vulns: OsvVuln[],
+  versionSource: "lockfile" | "range-minimum" = "lockfile"
 ): ScanVulnerability[] {
   return vulns.map((vuln) => ({
     osvId: vuln.id,
@@ -127,6 +129,9 @@ export function normalizeOsvResults(
     severity: extractSeverity(vuln),
     cvssVector: extractCvssVector(vuln),
     cvssScore: extractCvssScore(vuln),
+    affectedRanges: formatAffectedRanges(vuln, packageName),
+    versionInRange: isVersionInOsvRanges(installedVersion, vuln, packageName),
+    versionSource,
     title: vuln.summary ?? vuln.id,
     description: vuln.details ?? "",
     references: vuln.references?.map((r) => r.url) ?? [],

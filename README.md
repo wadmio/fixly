@@ -11,6 +11,10 @@ Fixly ships two surfaces over one shared scanner:
 - **Web scanner** — paste a public GitHub repo URL and get a vulnerability report.
 - **VS Code extension** — scan the project you have open, in-editor.
 
+> **Demoing or grading this?** See [DEMO.md](DEMO.md) for the click-path and how to
+> test it, and [PRESENTATION_NOTES.md](PRESENTATION_NOTES.md) for the Week 5–8
+> speaking script. The deliverable map is in [docs/weeks-5-8.md](docs/weeks-5-8.md).
+
 ---
 
 ## Product scope
@@ -92,7 +96,7 @@ and **Rescan / Copy Summary / Export JSON** actions). Diagnostics go to the "Fix
 
 ## Development
 
-Requires Node ≥ 18.18 and pnpm. **Use pnpm only** (there is no `package-lock.json`).
+Requires Node 20 (pinned in [.nvmrc](.nvmrc); CI uses Node 20) and pnpm. **Use pnpm only** (there is no `package-lock.json`).
 
 ```bash
 pnpm install      # install all workspace dependencies

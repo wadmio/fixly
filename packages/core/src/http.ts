@@ -9,9 +9,12 @@ export interface RetryOptions {
   maxDelayMs?: number;
 }
 
-// Transient statuses worth retrying. 403/404 are definitive (auth, rate limit,
-// missing) and are handled by callers, not retried here.
-const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+// Retry only transient failures: 429 (rate limited) and any 5xx. Permanent
+// client responses (401/403/404) are definitive and are never retried — they are
+// handled by the callers (auth, rate-limit, missing).
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600);
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -57,7 +60,7 @@ export async function fetchWithRetry(
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(url, init);
-      if (!RETRYABLE_STATUS.has(res.status) || attempt === retries) return res;
+      if (!isRetryableStatus(res.status) || attempt === retries) return res;
       await sleep(retryAfterMs(res) ?? backoffDelay(attempt, base, max));
     } catch (err) {
       lastError = err;

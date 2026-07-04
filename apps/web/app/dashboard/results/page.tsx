@@ -1,15 +1,16 @@
 import Link from "next/link";
-import { runScan } from "@fixly/core";
+import { runScan, scanProjectFiles, type ScanResult } from "@fixly/core";
 import ReportSummary from "@/components/ReportSummary";
 import ScanResultsTable from "@/components/ScanResultsTable";
 import ScanForm from "@/components/ScanForm";
+import { getFixture } from "@/lib/fixtures";
 
 export default async function ResultsPage(props: {
-  searchParams: Promise<{ repo?: string }>;
+  searchParams: Promise<{ repo?: string; fixture?: string }>;
 }) {
-  const { repo = "" } = await props.searchParams;
+  const { repo = "", fixture = "" } = await props.searchParams;
 
-  if (!repo) {
+  if (!repo && !fixture) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <p className="text-sm text-[#BFC3C7]">No repository specified.</p>
@@ -23,9 +24,39 @@ export default async function ResultsPage(props: {
     );
   }
 
-  let result;
+  // Resolve a requested fixture before scanning, so no JSX is built inside the
+  // try/catch below (a React error boundary can't catch JSX created there).
+  const fx = fixture ? getFixture(fixture) : null;
+  if (fixture && !fx) {
+    return (
+      <div className="rounded-xl border border-red-900 bg-red-950/20 px-6 py-5">
+        <p className="text-sm font-medium text-red-400">
+          Unknown sample &quot;{fixture}&quot;.
+        </p>
+      </div>
+    );
+  }
+
+  let result: ScanResult;
   try {
-    result = await runScan(repo);
+    if (fx) {
+      // Local fixture path: no GitHub fetch, only OSV. Reliable for demos.
+      result = await scanProjectFiles({
+        packageJson: fx.packageJson,
+        packageLock: fx.packageLock,
+        repo: fx.label,
+        target: {
+          owner: null,
+          repo: null,
+          branch: null,
+          subpath: null,
+          filesFound: ["package.json", "package-lock.json"],
+          filesMissing: [],
+        },
+      });
+    } else {
+      result = await runScan(repo);
+    }
   } catch {
     return (
       <div className="rounded-xl border border-red-900 bg-red-950/20 px-6 py-5">
