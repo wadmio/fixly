@@ -57,32 +57,52 @@ async function batchQueryIds(queries: OsvQuery[]): Promise<Map<string, string[]>
   const idsByPackage = new Map<string, string[]>();
 
   const CHUNK = 999;
+  // Safety bound on pagination — a single npm name@version never approaches
+  // this many advisories, but it prevents an unbounded loop on a bad token.
+  const MAX_PAGES = 20;
+
   for (let i = 0; i < queries.length; i += CHUNK) {
     const chunk = queries.slice(i, i + CHUNK);
 
-    const res = await fetchWithRetry(`${OSV_BASE}/querybatch`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        queries: chunk.map((q) => ({
-          package: { name: q.name, ecosystem: "npm" },
-          version: q.version,
-        })),
-      }),
-    });
+    // OSV returns a per-result `next_page_token` when a query matches more
+    // advisories than fit in one page. Carry the tokened queries forward and
+    // re-request until every result is exhausted, so heavily-affected packages
+    // don't silently lose advisories.
+    let pending = chunk.map((q) => ({ q, pageToken: undefined as string | undefined }));
 
-    if (!res.ok) throw new Error(`OSV querybatch ${res.status}: ${await res.text()}`);
+    for (let page = 0; page < MAX_PAGES && pending.length > 0; page++) {
+      const res = await fetchWithRetry(`${OSV_BASE}/querybatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          queries: pending.map(({ q, pageToken }) => ({
+            package: { name: q.name, ecosystem: "npm" },
+            version: q.version,
+            ...(pageToken ? { page_token: pageToken } : {}),
+          })),
+        }),
+      });
 
-    const data = (await res.json()) as {
-      results: Array<{ vulns?: Array<{ id: string }> }>;
-    };
+      if (!res.ok) throw new Error(`OSV querybatch ${res.status}: ${await res.text()}`);
 
-    data.results.forEach((result, idx) => {
-      const ids = result.vulns?.map((v) => v.id).filter(Boolean) ?? [];
-      if (ids.length > 0) {
-        idsByPackage.set(osvQueryKey(chunk[idx]), ids);
-      }
-    });
+      const data = (await res.json()) as {
+        results: Array<{ vulns?: Array<{ id: string }>; next_page_token?: string }>;
+      };
+
+      // Results align 1:1 with the queries just sent (`pending`).
+      const next: typeof pending = [];
+      data.results.forEach((result, idx) => {
+        const { q } = pending[idx];
+        const ids = result.vulns?.map((v) => v.id).filter(Boolean) ?? [];
+        if (ids.length > 0) {
+          const key = osvQueryKey(q);
+          const existing = idsByPackage.get(key);
+          idsByPackage.set(key, existing ? existing.concat(ids) : ids);
+        }
+        if (result.next_page_token) next.push({ q, pageToken: result.next_page_token });
+      });
+      pending = next;
+    }
   }
 
   return idsByPackage;
