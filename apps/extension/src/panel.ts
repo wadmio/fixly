@@ -1,5 +1,15 @@
 import * as vscode from "vscode";
+import { computeGrade, type Grade, type ScanGrade } from "@fixly/core";
 import type { ScanResult, ScanVulnerability, Severity } from "@fixly/core";
+
+// Same grade palette as the web ScoreCard (emerald/cyan/yellow/orange/red 400s).
+const GRADE_COLORS: Record<Grade, string> = {
+  A: "#34d399",
+  B: "#22d3ee",
+  C: "#facc15",
+  D: "#fb923c",
+  F: "#f87171",
+};
 
 const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "unknown"];
 
@@ -26,8 +36,10 @@ function escapeHtml(value: string): string {
 
 function buildSummaryText(result: ScanResult): string {
   const counts = severityCounts(result);
+  const grade = computeGrade(result);
   const lines = [
     `Fixly scan — ${result.repo}`,
+    `Fixly Score: ${grade.grade} (${grade.score}/100) — ${grade.headline}`,
     `Scanned: ${result.scannedAt} (source: ${result.source === "osv+nvd" ? "OSV + NVD" : "OSV"})`,
     `Packages: ${result.totalPackages} (${result.directPackages} direct, ${result.transitivePackages} transitive), ${result.resolvedPackages} checked`,
     `Vulnerabilities: ${result.vulnerabilities.length} (critical ${counts.critical}, high ${counts.high}, medium ${counts.medium}, low ${counts.low}, unknown ${counts.unknown})`,
@@ -77,8 +89,35 @@ function rowHtml(v: ScanVulnerability): string {
   </tr>`;
 }
 
+function scoreHtml(grade: ScanGrade): string {
+  const color = GRADE_COLORS[grade.grade];
+  const fixes =
+    grade.topFixes.length > 0
+      ? `<div class="fixes">
+          <div class="fixes-title">Fix these first</div>
+          <ul>
+            ${grade.topFixes
+              .map(
+                (fix) =>
+                  `<li><span class="pkg">${escapeHtml(fix.package)}</span><span class="muted mono">@${escapeHtml(fix.installedVersion)}</span> <span class="muted">— ${escapeHtml(fix.reason)}</span>${fix.command ? `<div class="cmd mono">$ ${escapeHtml(fix.command)}</div>` : ""}</li>`
+              )
+              .join("")}
+          </ul>
+        </div>`
+      : "";
+  return `<div class="score" style="border-color:${color}40">
+    <div class="score-letter" style="color:${color};border-color:${color}40">${grade.grade}</div>
+    <div class="score-body">
+      <div class="score-title">Fixly Score <span class="muted mono">${grade.score}/100</span></div>
+      <div class="score-headline muted">${escapeHtml(grade.headline)}</div>
+      ${fixes}
+    </div>
+  </div>`;
+}
+
 function renderHtml(result: ScanResult, nonce: string): string {
   const counts = severityCounts(result);
+  const grade = computeGrade(result);
 
   const warningsHtml =
     result.warnings.length > 0 || result.error
@@ -123,6 +162,15 @@ function renderHtml(result: ScanResult, nonce: string): string {
   .card { background: #1A1A1A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 12px; }
   .card-value { font-size: 20px; font-weight: 600; }
   .card-label { font-size: 11px; color: #BFC3C7; margin-top: 2px; }
+  .score { display: flex; gap: 16px; background: #1A1A1A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 16px; margin: 16px 0; }
+  .score-letter { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; flex-shrink: 0; background: #0A0A0A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; font-size: 32px; font-weight: 700; }
+  .score-title { font-weight: 600; }
+  .score-headline { font-size: 12px; margin-top: 2px; }
+  .fixes { margin-top: 10px; }
+  .fixes-title { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+  .fixes ul { margin: 0; padding-left: 16px; }
+  .fixes li { font-size: 12px; margin: 4px 0; }
+  .cmd { color: #34d399; background: #0A0A0A; border-radius: 4px; padding: 2px 6px; margin-top: 2px; width: fit-content; font-size: 11px; }
   .warnings { background: rgba(120,90,0,0.12); border: 1px solid rgba(180,140,0,0.4); border-radius: 10px; padding: 12px 14px; margin: 16px 0; }
   .warnings-title { font-size: 11px; font-weight: 600; color: #f4c150; margin-bottom: 6px; }
   .warnings ul { margin: 0; padding-left: 16px; }
@@ -155,6 +203,8 @@ function renderHtml(result: ScanResult, nonce: string): string {
     <button id="copy" class="secondary">Copy Summary</button>
     <button id="export" class="secondary">Export JSON Report</button>
   </div>
+
+  ${scoreHtml(grade)}
 
   <div class="cards">
     ${cardHtml("Packages", result.totalPackages)}
