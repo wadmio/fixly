@@ -41,7 +41,16 @@ function cvssV3BaseScore(vector: string): number | null {
       ? Math.min(1.08 * (impact + exploitability), 10)
       : Math.min(impact + exploitability, 10);
 
-  return Math.ceil(raw * 10) / 10;
+  return roundUp1(raw);
+}
+
+// The official CVSS v3.1 "Roundup" (Appendix A) — compensates for binary
+// floating-point so e.g. a raw 4.0000001 rounds to 4.0, not 4.1 (plain
+// Math.ceil is the older v3.0 behavior and can flip a severity band).
+function roundUp1(value: number): number {
+  const int = Math.round(value * 100_000);
+  if (int % 10_000 === 0) return int / 100_000;
+  return (Math.floor(int / 10_000) + 1) / 10;
 }
 
 function severityFromScore(score: number): Severity {
@@ -217,6 +226,21 @@ export function normalizeOsvResults(
     epssPercentile: null,
     title: vuln.summary ?? vuln.id,
     description: vuln.details ?? "",
-    references: vuln.references?.map((r) => r.url) ?? [],
+    references: safeReferenceUrls(vuln.references),
   }));
+}
+
+/**
+ * OSV reference URLs are third-party data rendered as clickable links. Keep only
+ * http(s) URLs so a crafted advisory can't smuggle a `javascript:`/`data:` URI
+ * into an href (an XSS vector React does NOT sanitize). Filter at the source so
+ * every consumer — web table, extension diagnostics, webview — is protected.
+ */
+function safeReferenceUrls(refs: OsvVuln["references"]): string[] {
+  const urls: string[] = [];
+  for (const r of refs ?? []) {
+    if (typeof r?.url !== "string") continue;
+    if (/^https?:\/\//i.test(r.url.trim())) urls.push(r.url);
+  }
+  return urls;
 }

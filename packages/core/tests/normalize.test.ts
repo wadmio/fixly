@@ -30,6 +30,24 @@ describe("normalizeOsvResults — severity", () => {
     expect(v.cvssScore).toBe(9.8);
   });
 
+  it("computes the scope-changed (S:C) branch against known spec vectors", () => {
+    // Reflected XSS — the canonical CVSS v3.1 6.1 vector.
+    const xss = normalizeOne({
+      id: "GHSA-8",
+      severity: [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N" }],
+    });
+    expect(xss.cvssScore).toBe(6.1);
+    expect(xss.severity).toBe("medium");
+
+    // Scope-changed, full impact, network, no barriers → 10.0.
+    const worst = normalizeOne({
+      id: "GHSA-9",
+      severity: [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H" }],
+    });
+    expect(worst.cvssScore).toBe(10.0);
+    expect(worst.severity).toBe("critical");
+  });
+
   it("falls back to unknown when no severity data is present", () => {
     const v = normalizeOne({ id: "GHSA-4" });
     expect(v.severity).toBe("unknown");
@@ -96,6 +114,22 @@ describe("normalizeOsvResults — fields", () => {
     ])[0];
     expect(v.affectedRanges).toEqual(["<2.1.0"]);
     expect(v.versionInRange).toBe(true);
+  });
+
+  it("keeps only http(s) reference URLs (drops javascript:/data: XSS vectors)", () => {
+    const v = normalizeOne({
+      id: "GHSA-ref",
+      references: [
+        { type: "WEB", url: "https://nvd.nist.gov/vuln/detail/CVE-2024-0001" },
+        { type: "WEB", url: "javascript:alert(document.cookie)" },
+        { type: "WEB", url: "data:text/html,<script>alert(1)</script>" },
+        { type: "WEB", url: "http://example.com/advisory" },
+      ],
+    });
+    expect(v.references).toEqual([
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-0001",
+      "http://example.com/advisory",
+    ]);
   });
 
   it("defaults versionSource to lockfile and passes through range-minimum", () => {
