@@ -33,7 +33,7 @@ export type {
 } from "./verdict";
 export { enrichWithIntel, clearIntelCache } from "./intel";
 export type { IntelEnrichment } from "./intel";
-export { fetchRegistryInfo, fetchLatestVersion, clearRegistryCache } from "./registry";
+export { fetchRegistryInfo, fetchLatestVersion, fetchDistTagVersion, clearRegistryCache } from "./registry";
 export type { RegistryInfo } from "./registry";
 export { findTyposquatTarget, editDistance } from "./typosquat";
 export type { TyposquatMatch } from "./typosquat";

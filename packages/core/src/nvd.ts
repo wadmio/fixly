@@ -15,6 +15,7 @@
 // findings simply stay OSV-only and a warning explains the coverage.
 
 import { fetchWithRetry } from "./http";
+import { BoundedMap } from "./bounded-map";
 import type { NvdData, ScanVulnerability, Severity } from "./types";
 
 const NVD_BASE = "https://services.nvd.nist.gov/rest/json/cves/2.0";
@@ -28,8 +29,9 @@ const REQUEST_TIMEOUT_MS = 4_000;
 const DEFAULT_TIME_BUDGET_MS = 8_000;
 
 // CVE → NvdData (or null when NVD had no usable CVSS data for it). Module-level
-// so rescans and demo repeats hit the cache instead of the rate limit.
-const nvdCache = new Map<string, NvdData | null>();
+// so rescans and demo repeats hit the cache instead of the rate limit. Capped
+// so a long-lived server can't accumulate CVE entries without bound.
+const nvdCache = new BoundedMap<string, NvdData | null>(5000);
 
 /** Test hook / manual reset. */
 export function clearNvdCache(): void {
@@ -65,18 +67,22 @@ function parseNvdResponse(body: NvdCveResponse): NvdData | null {
   };
 }
 
-async function fetchNvdCve(cveId: string, apiKey: string | undefined): Promise<NvdData | null> {
+async function fetchNvdCve(
+  cveId: string,
+  apiKey: string | undefined,
+  timeoutMs: number
+): Promise<NvdData | null> {
   const cached = nvdCache.get(cveId);
   if (cached !== undefined) return cached;
 
   const res = await fetchWithRetry(
     `${NVD_BASE}?cveId=${encodeURIComponent(cveId)}`,
-    {
-      headers: apiKey ? { apiKey } : undefined,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    },
-    // One retry only — NVD 429s are long-window; better to move on than stall.
-    { retries: 1, baseDelayMs: 500, maxDelayMs: 1_500 }
+    { headers: apiKey ? { apiKey } : undefined },
+    // No retry: retrying a timed-out NVD request would just burn the scan's
+    // time budget (a fresh timeout per attempt can't help a slow endpoint).
+    // Better to record the miss and move to the next CVE. timeoutMs is bounded
+    // by the remaining budget so a single request can't overrun it.
+    { retries: 0, timeoutMs }
   );
   if (!res.ok) throw new Error(`NVD ${res.status}`);
 
@@ -136,7 +142,10 @@ export async function enrichWithNvd(
     attempted++;
     try {
       if (!isCached) fetches++;
-      const data = await fetchNvdCve(cveId, apiKey);
+      // Bound each request to the remaining budget so it can't overrun (with a
+      // small floor so a near-deadline request still has a fair chance).
+      const perRequest = Math.max(500, Math.min(REQUEST_TIMEOUT_MS, deadline - Date.now()));
+      const data = await fetchNvdCve(cveId, apiKey, perRequest);
       if (data) dataByCve.set(cveId, data);
     } catch {
       failed++;

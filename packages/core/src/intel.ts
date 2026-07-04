@@ -11,6 +11,7 @@
 // keep their OSV data. Nothing here ever fails a scan.
 
 import { fetchWithRetry } from "./http";
+import { BoundedMap } from "./bounded-map";
 import type { ScanVulnerability } from "./types";
 
 const KEV_URL =
@@ -21,7 +22,8 @@ const KEV_TTL_MS = 24 * 60 * 60 * 1000; // CISA updates the catalog ~weekly
 const EPSS_CHUNK = 100;
 
 let kevCache: { at: number; cves: Set<string> } | null = null;
-const epssCache = new Map<string, { score: number; percentile: number }>();
+// Capped so a long-lived server can't accumulate EPSS entries without bound.
+const epssCache = new BoundedMap<string, { score: number; percentile: number }>(10000);
 
 /** Test hook / manual reset. */
 export function clearIntelCache(): void {
@@ -33,8 +35,8 @@ async function fetchKevSet(): Promise<Set<string>> {
   if (kevCache && Date.now() - kevCache.at < KEV_TTL_MS) return kevCache.cves;
   const res = await fetchWithRetry(
     KEV_URL,
-    { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
-    { retries: 1 }
+    undefined,
+    { retries: 1, timeoutMs: REQUEST_TIMEOUT_MS }
   );
   if (!res.ok) throw new Error(`KEV catalog ${res.status}`);
   const data = (await res.json()) as { vulnerabilities?: Array<{ cveID?: string }> };

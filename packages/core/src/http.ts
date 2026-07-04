@@ -7,6 +7,24 @@ export interface RetryOptions {
   baseDelayMs?: number;
   /** Maximum backoff delay in ms (default 4000). */
   maxDelayMs?: number;
+  /**
+   * Per-attempt timeout in ms. A FRESH AbortSignal is created for each attempt —
+   * a single pre-made `AbortSignal.timeout()` passed via `init.signal` would fire
+   * once and then instantly abort every retry, silently defeating the retry.
+   */
+  timeoutMs?: number;
+}
+
+/** Build the per-attempt init, giving each attempt its own fresh timeout. */
+function initForAttempt(init: RequestInit | undefined, timeoutMs: number | undefined): RequestInit | undefined {
+  if (!timeoutMs) return init;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const external = init?.signal;
+  const signal =
+    external && typeof AbortSignal.any === "function"
+      ? AbortSignal.any([external, timeoutSignal])
+      : timeoutSignal;
+  return { ...init, signal };
 }
 
 // Retry only transient failures: 429 (rate limited) and any 5xx. Permanent
@@ -59,7 +77,7 @@ export async function fetchWithRetry(
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, init);
+      const res = await fetch(url, initForAttempt(init, opts.timeoutMs));
       if (!isRetryableStatus(res.status) || attempt === retries) return res;
       await sleep(retryAfterMs(res) ?? backoffDelay(attempt, base, max));
     } catch (err) {

@@ -7,6 +7,7 @@
 // obscure/new packages this module exists for have tiny packuments.
 
 import { fetchWithRetry } from "./http";
+import { BoundedMap } from "./bounded-map";
 
 const REGISTRY_BASE = "https://registry.npmjs.org";
 const DOWNLOADS_BASE = "https://api.npmjs.org/downloads/point/last-week";
@@ -29,7 +30,8 @@ export interface RegistryInfo {
   weeklyDownloads: number | null;
 }
 
-const cache = new Map<string, { at: number; info: RegistryInfo }>();
+// Capped so a long-lived server can't accumulate package entries without bound.
+const cache = new BoundedMap<string, { at: number; info: RegistryInfo }>(2000);
 
 /** Test hook / manual reset. */
 export function clearRegistryCache(): void {
@@ -75,20 +77,27 @@ async function fetchWeeklyDownloads(name: string): Promise<number | null> {
 }
 
 /**
- * Resolve just the latest published version via the tiny `/<pkg>/latest`
- * endpoint (single-version metadata — small even for react-sized packages).
- * Returns null when the package doesn't exist; throws on network trouble.
+ * Resolve a dist-tag (or "latest") to its concrete published version via the
+ * tiny `/<pkg>/<tag>` endpoint (single-version metadata — small even for
+ * react-sized packages). This is what `npm install pkg@<tag>` actually fetches.
+ * Returns null when the package or tag doesn't exist (the registry does NOT
+ * resolve semver ranges here, so a range 404s → null); throws on network trouble.
  */
-export async function fetchLatestVersion(name: string): Promise<string | null> {
+export async function fetchDistTagVersion(name: string, tag = "latest"): Promise<string | null> {
   const res = await fetchWithRetry(
-    `${REGISTRY_BASE}/${name.replace("/", "%2F")}/latest`,
-    { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
-    { retries: 1 }
+    `${REGISTRY_BASE}/${name.replace("/", "%2F")}/${encodeURIComponent(tag)}`,
+    undefined,
+    { retries: 1, timeoutMs: REQUEST_TIMEOUT_MS }
   );
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`npm registry ${res.status} for ${name}@latest`);
+  if (!res.ok) throw new Error(`npm registry ${res.status} for ${name}@${tag}`);
   const data = (await res.json()) as { version?: string };
   return data.version ?? null;
+}
+
+/** Resolve the `latest` dist-tag. Thin wrapper over {@link fetchDistTagVersion}. */
+export async function fetchLatestVersion(name: string): Promise<string | null> {
+  return fetchDistTagVersion(name, "latest");
 }
 
 /**
@@ -106,8 +115,8 @@ export async function fetchRegistryInfo(
 
   const res = await fetchWithRetry(
     `${REGISTRY_BASE}/${name.replace("/", "%2F")}`,
-    { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
-    { retries: 1 }
+    undefined,
+    { retries: 1, timeoutMs: REQUEST_TIMEOUT_MS }
   );
 
   if (res.status === 404) {

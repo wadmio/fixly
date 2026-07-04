@@ -1,5 +1,6 @@
 import type { ScanResult } from "./types";
 import { parseGitHubUrl } from "./github-url";
+import { BoundedMap } from "./bounded-map";
 
 // Simple in-memory, per-process scan cache for development/demo: repeated scans
 // of the same repo within the TTL return the previous result instead of hitting
@@ -25,7 +26,9 @@ interface CacheEntry {
 }
 
 const DEFAULT_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const store = new Map<string, CacheEntry>();
+// Capped so a long-lived server scanning many distinct repos can't grow the
+// cache without bound (entries also expire by TTL on read).
+const store = new BoundedMap<string, CacheEntry>(500);
 
 export function getCachedScan(key: string): ScanResult | null {
   const entry = store.get(key);
