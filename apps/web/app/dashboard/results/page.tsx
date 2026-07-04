@@ -1,9 +1,28 @@
 import Link from "next/link";
-import { runScan, scanProjectFiles, type ScanResult } from "@fixly/core";
+import { runScan, scanProjectFiles, findingKey, countBySeverity, type ScanResult } from "@fixly/core";
 import ReportSummary from "@/components/ReportSummary";
 import ScanResultsTable from "@/components/ScanResultsTable";
 import ScanForm from "@/components/ScanForm";
+import ScanHistoryRecorder from "@/components/ScanHistoryRecorder";
 import { getFixture } from "@/lib/fixtures";
+import type { ScanHistoryEntry } from "@/lib/history";
+
+// Compact, serializable summary handed to the client-side history recorder.
+function historyEntry(result: ScanResult, repo: string, fixture: string): ScanHistoryEntry {
+  return {
+    repo: result.repo.replace(/^https?:\/\/github\.com\//, "").replace(/\/$/, ""),
+    url: fixture
+      ? `/dashboard/results?fixture=${encodeURIComponent(fixture)}`
+      : `/dashboard/results?repo=${encodeURIComponent(repo)}`,
+    scannedAt: result.scannedAt,
+    totalPackages: result.totalPackages,
+    directPackages: result.directPackages,
+    transitivePackages: result.transitivePackages,
+    totalFindings: result.vulnerabilities.length,
+    counts: countBySeverity(result.vulnerabilities),
+    findingKeys: result.vulnerabilities.map(findingKey),
+  };
+}
 
 export default async function ResultsPage(props: {
   searchParams: Promise<{ repo?: string; fixture?: string }>;
@@ -102,6 +121,8 @@ export default async function ResultsPage(props: {
       ) : (
         <>
           <ReportSummary result={result} />
+
+          <ScanHistoryRecorder entry={historyEntry(result, repo, fixture)} />
 
           {result.warnings.length > 0 && (
             <div className="rounded-xl border border-yellow-900/60 bg-yellow-950/20 px-5 py-4">

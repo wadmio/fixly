@@ -1,11 +1,13 @@
 import Link from "next/link";
 import ScanForm from "@/components/ScanForm";
+import RecentScans from "@/components/RecentScans";
 
 const scope = [
   "Public GitHub repositories only — no authentication required or supported.",
   "npm ecosystem only — reads package.json and package-lock.json.",
-  "Direct dependencies only; transitive/nested dependencies are not scanned yet.",
-  "Vulnerability data comes from the OSV database (api.osv.dev).",
+  "Direct AND transitive dependencies — the full lock file tree is checked (with a lock file; without one, direct only).",
+  "Detection via the OSV database (api.osv.dev); CVEs are cross-referenced against NVD for a second severity opinion.",
+  "Scan history is stored in this browser only — no accounts, no server-side storage.",
 ];
 
 export default function DashboardPage() {
@@ -15,9 +17,9 @@ export default function DashboardPage() {
         <h1 className="text-xl font-semibold text-white">Scan a repository</h1>
         <p className="mt-1.5 text-sm text-[#BFC3C7]">
           Paste a public GitHub URL. Fixly fetches the project&apos;s{" "}
-          <span className="font-mono text-xs">package.json</span>, resolves installed
-          versions from the lock file when available, and checks every direct dependency
-          against OSV.
+          <span className="font-mono text-xs">package.json</span> and lock file, checks
+          every installed package — direct and transitive — against OSV, and
+          cross-references CVEs with NVD.
         </p>
       </div>
 
@@ -33,6 +35,8 @@ export default function DashboardPage() {
         </Link>{" "}
         — a bundled project of known-vulnerable packages (no GitHub needed).
       </p>
+
+      <RecentScans />
 
       <div className="rounded-xl border border-[#D1D5DB]/10 bg-[#1A1A1A] p-5">
         <p className="mb-3 text-xs font-medium text-white">Current scope</p>

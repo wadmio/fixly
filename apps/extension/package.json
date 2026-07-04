@@ -16,8 +16,27 @@
       {
         "command": "fixly.scanCurrentProject",
         "title": "Fixly: Scan Current Project"
+      },
+      {
+        "command": "fixly.showReport",
+        "title": "Fixly: Show Last Report"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Fixly",
+      "properties": {
+        "fixly.scanOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically rescan when package.json or package-lock.json is saved."
+        },
+        "fixly.includeTransitive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Also scan transitive dependencies discovered in the package-lock.json tree."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "node esbuild.mjs",

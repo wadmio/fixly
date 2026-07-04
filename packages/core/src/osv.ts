@@ -11,6 +11,12 @@ export interface OsvQuery {
   version: string;
 }
 
+/** Key used to index query results: the same package can be checked at more
+ *  than one version (nested copies in a lock file tree). */
+export function osvQueryKey(q: OsvQuery): string {
+  return `${q.name}@${q.version}`;
+}
+
 export interface OsvSeverity {
   type: string;
   score: string;
@@ -44,7 +50,8 @@ export interface OsvVuln {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1 — querybatch: find which packages have vulns and collect their IDs
+// Step 1 — querybatch: find which packages have vulns and collect their IDs.
+// Results are keyed by osvQueryKey (name@version).
 // ---------------------------------------------------------------------------
 async function batchQueryIds(queries: OsvQuery[]): Promise<Map<string, string[]>> {
   const idsByPackage = new Map<string, string[]>();
@@ -73,7 +80,7 @@ async function batchQueryIds(queries: OsvQuery[]): Promise<Map<string, string[]>
     data.results.forEach((result, idx) => {
       const ids = result.vulns?.map((v) => v.id).filter(Boolean) ?? [];
       if (ids.length > 0) {
-        idsByPackage.set(chunk[idx].name, ids);
+        idsByPackage.set(osvQueryKey(chunk[idx]), ids);
       }
     });
   }
@@ -111,11 +118,35 @@ async function fetchAllVulnDetails(ids: string[]): Promise<Map<string, OsvVuln>>
   return details;
 }
 
+/**
+ * Query every OSV advisory for a single package (optionally scoped to one
+ * version) via POST /v1/query. Unlike querybatch this returns full records in
+ * one round trip — right for single-package verdicts (CLI/MCP `check`).
+ * Only the first page is read: a package with >1 page of advisories has
+ * long since crossed every verdict threshold anyway.
+ */
+export async function queryOsvPackage(
+  name: string,
+  version?: string | null
+): Promise<OsvVuln[]> {
+  const res = await fetchWithRetry(`${OSV_BASE}/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      package: { name, ecosystem: "npm" },
+      ...(version ? { version } : {}),
+    }),
+  });
+  if (!res.ok) throw new Error(`OSV query ${res.status}: ${await res.text()}`);
+  const data = (await res.json()) as { vulns?: OsvVuln[] };
+  return data.vulns ?? [];
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 export interface OsvQueryResult {
-  /** Full vulnerability records keyed by package name. */
+  /** Full vulnerability records keyed by {@link osvQueryKey} (name@version). */
   results: Map<string, OsvVuln[]>;
   /** Non-fatal issues (e.g. detail lookups that failed). */
   warnings: string[];

@@ -28,8 +28,20 @@ const VULNERABLE_DEPS: Record<string, string> = {
   ejs: "2.6.1",
 };
 
+// Present only in the lock file tree (NOT declared in package.json) → these
+// exercise transitive detection. Real old releases with real OSV advisories:
+// request@2.88.0 (CVE-2023-28155 SSRF) pulls tough-cookie@2.5.0
+// (CVE-2023-26136 prototype pollution).
+const VULNERABLE_TRANSITIVE: Record<string, string> = {
+  request: "2.88.0",
+  "tough-cookie": "2.5.0",
+};
+
 const lockPackages: Record<string, { version: string }> = {};
 for (const [name, version] of Object.entries(VULNERABLE_DEPS)) {
+  lockPackages[`node_modules/${name}`] = { version };
+}
+for (const [name, version] of Object.entries(VULNERABLE_TRANSITIVE)) {
   lockPackages[`node_modules/${name}`] = { version };
 }
 
@@ -37,7 +49,7 @@ const vulnerableDemo: DemoFixture = {
   id: "vulnerable-demo",
   label: "Sample: intentionally-vulnerable Node project",
   description:
-    "A small package.json/package-lock.json pinned to old releases of popular packages with known OSV advisories. Runs without GitHub — only OSV is queried.",
+    "A small package.json/package-lock.json pinned to old releases of popular packages with known OSV advisories, including lock-only (transitive) packages. Runs without GitHub — only OSV/NVD are queried.",
   packageJson: {
     name: "fixly-vulnerable-demo",
     version: "1.0.0",

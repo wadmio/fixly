@@ -1,21 +1,34 @@
 export type Severity = "critical" | "high" | "medium" | "low" | "unknown";
 
-export type DependencyType = "dependencies" | "devDependencies";
+export type DependencyType = "dependencies" | "devDependencies" | "transitive";
+
+/** Where a finding's vulnerability data came from. */
+export type VulnDataSource = "osv" | "nvd";
 
 /**
- * A single direct dependency declared in package.json, with its resolution
- * status. `installedVersion` is the exact version from package-lock.json when
+ * A single dependency to check. Direct entries come from package.json
+ * (`dependencies`/`devDependencies`); `transitive` entries are discovered in
+ * the package-lock.json tree with exact installed versions. For direct
+ * entries, `installedVersion` is the exact version from package-lock.json when
  * available, otherwise null — we never invent an installed version.
  */
 export interface DependencyEntry {
   name: string;
-  /** The version range as written in package.json (e.g. "^1.2.3"). */
+  /** The version range as written in package.json (e.g. "^1.2.3"). For
+   *  transitive entries this is the exact locked version. */
   requestedVersion: string;
   /** Exact version from package-lock.json, or null if no lock entry exists. */
   installedVersion: string | null;
   dependencyType: DependencyType;
-  /** The manifest the dependency was declared in. */
-  sourceFile: "package.json";
+  /** The manifest the dependency was declared/discovered in. */
+  sourceFile: "package.json" | "package-lock.json";
+}
+
+/** CVSS data cross-referenced from the National Vulnerability Database. */
+export interface NvdData {
+  cvssScore: number | null;
+  cvssVector: string | null;
+  severity: Severity | null;
 }
 
 export interface ScanVulnerability {
@@ -38,6 +51,24 @@ export interface ScanVulnerability {
    *  or the minimum of the declared range when no lock file was present
    *  (the latter is approximate). */
   versionSource: "lockfile" | "range-minimum";
+  /** Whether the vulnerable package is a direct dependency (declared in
+   *  package.json) or was discovered in the lock file tree (`transitive`). */
+  dependencyType: DependencyType;
+  /** Which databases reported/confirmed this finding. Always includes "osv";
+   *  "nvd" is added when the CVE was cross-referenced against NVD. */
+  sources: VulnDataSource[];
+  /** NVD's independent CVSS assessment for the CVE, when cross-referenced. */
+  nvd: NvdData | null;
+  /** True when this is a malicious-package advisory (OSV `MAL-` record) —
+   *  the package itself is malware, not merely buggy. */
+  malicious: boolean;
+  /** True when the CVE is in CISA's Known Exploited Vulnerabilities catalog
+   *  (confirmed exploitation in the wild — top remediation priority). */
+  knownExploited: boolean;
+  /** EPSS probability (0–1) the CVE is exploited in the next 30 days. */
+  epssScore: number | null;
+  /** EPSS percentile (0–1) relative to all scored CVEs. */
+  epssPercentile: number | null;
   title: string;
   description: string;
   references: string[];
@@ -78,11 +109,16 @@ export interface ScanResult {
   repo: string;
   target: ScanTarget;
   scannedAt: string;
-  source: "osv";
-  /** Every direct dependency found, with resolution status. */
+  /** "osv+nvd" when at least one finding was cross-referenced against NVD. */
+  source: "osv" | "osv+nvd";
+  /** Every dependency found (direct + transitive), with resolution status. */
   dependencies: DependencyEntry[];
-  /** Number of direct dependencies declared (dependencies.length). */
+  /** Number of dependencies scanned (dependencies.length). */
   totalPackages: number;
+  /** Direct dependencies declared in package.json. */
+  directPackages: number;
+  /** Unique package@version pairs discovered in the lock file tree. */
+  transitivePackages: number;
   /** Number of dependencies with a concrete version checked against OSV. */
   resolvedPackages: number;
   vulnerabilities: ScanVulnerability[];

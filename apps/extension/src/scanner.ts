@@ -58,10 +58,14 @@ export async function scanWorkspace(
     log("No package-lock.json found; resolving versions from package.json ranges.");
   }
 
+  const config = vscode.workspace.getConfiguration("fixly");
+  const includeTransitive = config.get<boolean>("includeTransitive", true);
+
   log("Querying OSV…");
   const result = await scanProjectFiles({
     packageJson,
     packageLock,
+    includeTransitive,
     repo: folder.name,
     target: {
       owner: null,

@@ -1,10 +1,13 @@
 import { parseGitHubUrl } from "./github-url";
 import { fetchProject } from "./github";
 import { parseDependencies, resolveCheckVersion } from "./parse-packages";
-import { queryOsvBatch } from "./osv";
+import { queryOsvBatch, osvQueryKey } from "./osv";
 import { normalizeOsvResults } from "./normalize";
+import { enrichWithNvd } from "./nvd";
+import { enrichWithIntel } from "./intel";
 import { getCachedScan, setCachedScan, scanCacheKey } from "./cache";
 import type {
+  DependencyType,
   ScanResult,
   ScanTarget,
   ScanVulnerability,
@@ -58,6 +61,16 @@ export interface ScanProjectFilesInput {
   target?: ScanTarget;
   /** Override the scan timestamp (defaults to now). */
   scannedAt?: string;
+  /** Also scan transitive packages from the lock file tree (default true). */
+  includeTransitive?: boolean;
+  /** Cross-reference CVEs against NVD (default true; best-effort — rate
+   *  limits and timeouts degrade to warnings, never failures). Also disabled
+   *  globally via FIXLY_DISABLE_NVD=1. */
+  nvd?: boolean;
+  /** Enrich findings with exploit intelligence — CISA KEV known-exploited
+   *  flags + EPSS exploit-probability scores (default true; best-effort).
+   *  Also disabled globally via FIXLY_DISABLE_INTEL=1. */
+  intel?: boolean;
 }
 
 /**
@@ -74,14 +87,20 @@ export async function scanProjectFiles(
 
   const { dependencies, warnings } = parseDependencies(
     input.packageJson,
-    input.packageLock ?? null
+    input.packageLock ?? null,
+    { includeTransitive: input.includeTransitive ?? true }
   );
+
+  const directPackages = dependencies.filter((d) => d.dependencyType !== "transitive").length;
+  const transitivePackages = dependencies.length - directPackages;
+  const counts = { directPackages, transitivePackages };
 
   if (dependencies.length === 0) {
     return {
       ...base,
       dependencies,
       totalPackages: 0,
+      ...counts,
       resolvedPackages: 0,
       vulnerabilities: [],
       warnings,
@@ -92,27 +111,38 @@ export async function scanProjectFiles(
     };
   }
 
-  // Build the set of (name, concrete version) pairs to check against OSV.
-  // `source` records whether the version came from an exact lock entry or the
-  // resolved minimum of a declared range (approximate) — surfaced per finding.
-  type Checkable = { name: string; version: string; source: "lockfile" | "range-minimum" };
-  const checkable: Checkable[] = dependencies
-    .map((entry) => {
-      const version = resolveCheckVersion(entry);
-      if (version === null) return null;
-      return {
-        name: entry.name,
-        version,
-        source: entry.installedVersion ? "lockfile" : "range-minimum",
-      } as Checkable;
-    })
-    .filter((q): q is Checkable => q !== null);
+  // Build the set of (name, concrete version) pairs to check against OSV,
+  // keyed by name@version — the same package can appear at several versions in
+  // a lock file tree. `source` records whether the version came from an exact
+  // lock entry or the resolved minimum of a declared range (approximate).
+  type Checkable = {
+    name: string;
+    version: string;
+    source: "lockfile" | "range-minimum";
+    dependencyType: DependencyType;
+  };
+  const checkableByKey = new Map<string, Checkable>();
+  for (const entry of dependencies) {
+    const version = resolveCheckVersion(entry);
+    if (version === null) continue;
+    const item: Checkable = {
+      name: entry.name,
+      version,
+      source: entry.installedVersion ? "lockfile" : "range-minimum",
+      dependencyType: entry.dependencyType,
+    };
+    const key = osvQueryKey(item);
+    // Direct entries were parsed first and win over a transitive duplicate.
+    if (!checkableByKey.has(key)) checkableByKey.set(key, item);
+  }
+  const checkable = [...checkableByKey.values()];
 
   if (checkable.length === 0) {
     return {
       ...base,
       dependencies,
       totalPackages: dependencies.length,
+      ...counts,
       resolvedPackages: 0,
       vulnerabilities: [],
       warnings,
@@ -131,6 +161,7 @@ export async function scanProjectFiles(
       ...base,
       dependencies,
       totalPackages: dependencies.length,
+      ...counts,
       resolvedPackages: checkable.length,
       vulnerabilities: [],
       warnings,
@@ -141,23 +172,45 @@ export async function scanProjectFiles(
     };
   }
 
-  const versionByName = new Map(checkable.map((q) => [q.name, q.version]));
-  const sourceByName = new Map(checkable.map((q) => [q.name, q.source]));
   const vulnerabilities: ScanVulnerability[] = [];
-  for (const [pkgName, vulns] of osv.results.entries()) {
-    const version = versionByName.get(pkgName);
-    if (!version) continue;
-    const source = sourceByName.get(pkgName) ?? "lockfile";
-    vulnerabilities.push(...normalizeOsvResults(pkgName, version, vulns, source));
+  for (const [key, vulns] of osv.results.entries()) {
+    const item = checkableByKey.get(key);
+    if (!item) continue;
+    vulnerabilities.push(
+      ...normalizeOsvResults(item.name, item.version, vulns, item.source, item.dependencyType)
+    );
+  }
+
+  let sorted = sortBySeverity(vulnerabilities);
+  let source: ScanResult["source"] = "osv";
+  const nvdWarnings: string[] = [];
+
+  // Second-source verification: cross-reference CVEs against NVD (best-effort).
+  const nvdEnabled = (input.nvd ?? true) && process.env.FIXLY_DISABLE_NVD !== "1";
+  if (nvdEnabled && sorted.length > 0) {
+    const enrichment = await enrichWithNvd(sorted);
+    sorted = enrichment.vulnerabilities;
+    nvdWarnings.push(...enrichment.warnings);
+    if (enrichment.enrichedCount > 0) source = "osv+nvd";
+  }
+
+  // Exploit intelligence: CISA KEV + EPSS on every CVE (best-effort).
+  const intelEnabled = (input.intel ?? true) && process.env.FIXLY_DISABLE_INTEL !== "1";
+  if (intelEnabled && sorted.length > 0) {
+    const intel = await enrichWithIntel(sorted);
+    sorted = intel.vulnerabilities;
+    nvdWarnings.push(...intel.warnings);
   }
 
   return {
     ...base,
+    source,
     dependencies,
     totalPackages: dependencies.length,
+    ...counts,
     resolvedPackages: checkable.length,
-    vulnerabilities: sortBySeverity(vulnerabilities),
-    warnings: [...warnings, ...osv.warnings],
+    vulnerabilities: sorted,
+    warnings: [...warnings, ...osv.warnings, ...nvdWarnings],
   };
 }
 
@@ -185,6 +238,8 @@ export async function runScan(repoUrl: string): Promise<ScanResult> {
       source: "osv",
       dependencies: [],
       totalPackages: 0,
+      directPackages: 0,
+      transitivePackages: 0,
       resolvedPackages: 0,
       vulnerabilities: [],
       warnings: [],
@@ -212,6 +267,8 @@ export async function runScan(repoUrl: string): Promise<ScanResult> {
       source: "osv",
       dependencies: [],
       totalPackages: 0,
+      directPackages: 0,
+      transitivePackages: 0,
       resolvedPackages: 0,
       vulnerabilities: [],
       warnings: [],

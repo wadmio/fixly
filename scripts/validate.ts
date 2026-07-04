@@ -36,11 +36,15 @@ function report(label: string, url: string, r: ScanResult): void {
     `target:  ${t.owner ?? "-"}/${t.repo ?? "-"} branch=${t.branch ?? "-"} ` +
       `found=[${t.filesFound.join(", ")}] missing=[${t.filesMissing.join(", ")}]`
   );
-  console.log(`deps:    total=${r.totalPackages} resolved=${r.resolvedPackages}`);
+  console.log(
+    `deps:    total=${r.totalPackages} (direct=${r.directPackages} transitive=${r.transitivePackages}) resolved=${r.resolvedPackages}`
+  );
   const c = counts(r);
+  const nvdCount = r.vulnerabilities.filter((v) => v.sources.includes("nvd")).length;
   console.log(
     `vulns:   total=${r.vulnerabilities.length} ` +
-      `(C${c.critical} H${c.high} M${c.medium} L${c.low} U${c.unknown})`
+      `(C${c.critical} H${c.high} M${c.medium} L${c.low} U${c.unknown})` +
+      ` source=${r.source}${nvdCount ? ` nvd-checked=${nvdCount}` : ""}`
   );
   if (r.warnings.length) {
     for (const w of r.warnings) console.log(`warning: ${w}`);

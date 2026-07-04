@@ -5,6 +5,12 @@ export interface ParsedDependencies {
   warnings: string[];
 }
 
+export interface ParseDependenciesOptions {
+  /** Also discover transitive packages from the lock file tree (default true).
+   *  Requires a lock file — without one, only direct deps are known. */
+  includeTransitive?: boolean;
+}
+
 /**
  * Strip semver range operators (^ ~ >= < v, whitespace) and return a plain
  * version string, or null if the value cannot be resolved to a concrete version
@@ -61,15 +67,71 @@ function extractLockVersions(packageLock: any): Record<string, string> {
 }
 
 /**
+ * Collect every unique (name, version) pair installed anywhere in the lock
+ * file tree, including nested copies at different versions.
+ *
+ * - v2/v3: every `packages` key under node_modules/ (nested paths included);
+ *   the package name is the segment after the LAST "node_modules/". Workspace
+ *   links (`link: true`) and versionless entries are skipped.
+ * - v1: the `dependencies` map is walked recursively (nested `dependencies`).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractInstalledTree(packageLock: any): Map<string, Set<string>> {
+  const tree = new Map<string, Set<string>>();
+  if (!packageLock) return tree;
+
+  const add = (name: string, version: string) => {
+    if (!name || !version) return;
+    let versions = tree.get(name);
+    if (!versions) tree.set(name, (versions = new Set()));
+    versions.add(version);
+  };
+
+  if (packageLock.lockfileVersion >= 2 && packageLock.packages) {
+    for (const [key, val] of Object.entries(
+      packageLock.packages as Record<string, { version?: string; link?: boolean }>
+    )) {
+      if (!key.startsWith("node_modules/") || val.link) continue;
+      const marker = key.lastIndexOf("node_modules/");
+      const name = key.slice(marker + "node_modules/".length);
+      if (val.version) add(name, val.version);
+    }
+  } else if (packageLock.dependencies) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const walk = (deps: Record<string, any>) => {
+      for (const [name, val] of Object.entries(deps)) {
+        if (val?.version) add(name, val.version);
+        if (val?.dependencies) walk(val.dependencies);
+      }
+    };
+    walk(packageLock.dependencies);
+  }
+
+  return tree;
+}
+
+/**
  * Resolve the direct dependencies of a package.json into normalized
  * {@link DependencyEntry} objects, preferring exact versions from the lock file.
  * Only direct `dependencies` + `devDependencies` are considered (no transitive).
  * Returns the entries plus non-fatal warnings (missing lock file, unresolvable
  * version ranges). `dependencies` take precedence over `devDependencies` when a
  * package appears in both.
+ *
+ * With `includeTransitive` (default true) and a lock file present, every other
+ * package@version installed anywhere in the tree is appended as a `transitive`
+ * entry with its exact locked version. The same package can legitimately
+ * appear more than once at different versions (nested node_modules) — each
+ * unique pair is checked.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function parseDependencies(packageJson: any, packageLock: any | null): ParsedDependencies {
+export function parseDependencies(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  packageJson: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  packageLock: any | null,
+  options: ParseDependenciesOptions = {}
+): ParsedDependencies {
+  const includeTransitive = options.includeTransitive ?? true;
   const resolved = extractLockVersions(packageLock);
   const dependencies: DependencyEntry[] = [];
   const seen = new Set<string>();
@@ -98,9 +160,33 @@ export function parseDependencies(packageJson: any, packageLock: any | null): Pa
   add(packageJson?.dependencies, "dependencies");
   add(packageJson?.devDependencies, "devDependencies");
 
+  if (includeTransitive && packageLock) {
+    // Direct (name, version) pairs already covered above — a nested copy of a
+    // direct package at a DIFFERENT version is still a distinct transitive
+    // entry (e.g. lodash 4.x direct + lodash 3.x nested under another dep).
+    const directPairs = new Set(
+      dependencies.map((d) => `${d.name}@${resolveCheckVersion(d) ?? ""}`)
+    );
+    for (const [name, versions] of extractInstalledTree(packageLock)) {
+      for (const version of versions) {
+        if (directPairs.has(`${name}@${version}`)) continue;
+        dependencies.push({
+          name,
+          requestedVersion: version,
+          installedVersion: version,
+          dependencyType: "transitive",
+          sourceFile: "package-lock.json",
+        });
+      }
+    }
+  }
+
   if (!packageLock) {
     warnings.push(
-      "No package-lock.json found. Exact installed versions are unknown; each declared range was resolved to its minimum version, so results may be approximate."
+      "No package-lock.json found. Exact installed versions are unknown; each declared range was resolved to its minimum version, so results may be approximate." +
+        (includeTransitive
+          ? " Transitive dependencies cannot be discovered without a lock file, so only direct dependencies were checked."
+          : "")
     );
   }
   if (unresolved.length > 0) {

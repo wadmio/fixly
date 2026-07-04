@@ -149,3 +149,39 @@ warning: Could not determine a version to check for 10 package(s): ... These wer
 > the textual outputs above are the canonical proof and are reproducible via
 > `pnpm validate`.
 
+
+---
+
+## 2026-07-03 — Transitive scanning + NVD cross-referencing + history
+
+Re-validated after adding full lock-tree (transitive) scanning, NVD CVE
+enrichment, browser scan history, and the extension's inline diagnostics /
+on-save rescan. All checks green: `pnpm lint` / `typecheck` / `test`
+(77 core + 8 web) / `build`, plus the live runs below
+(`FIXLY_DISABLE_SCAN_CACHE=1 pnpm validate` and a NodeGoat one-off).
+
+```text
+=== vulnerable repo (OWASP/NodeGoat, has package-lock.json) ===
+packages: 1091 (direct 36 + transitive 1055)   resolved: 1091
+vulns:    267 (C27 H141 M81 L17 U1)
+  of which transitive: 250 | nvd-checked: 3 | source: osv+nvd
+warning:  NVD cross-check covered 5 of 148 CVEs (public NVD API rate limits —
+          set NVD_API_KEY to raise coverage). Uncovered findings remain OSV-only.
+sample:   babel-traverse@6.11.4 CVE-2023-45133 — OSV CVSS 9.3, NVD CVSS 9.3 (agreement)
+
+=== branch + subpath (vercel/next.js/tree/canary/packages/next, no lock file) ===
+deps:    total=229 (direct=229 transitive=0) resolved=219
+vulns:   total=25 (C1 H11 M5 L8 U0) source=osv+nvd nvd-checked=5
+warning: No package-lock.json found ... Transitive dependencies cannot be
+         discovered without a lock file, so only direct dependencies were checked.
+
+All error cases (invalid URL, non-GitHub URL, repo not found, missing
+package.json) unchanged — precise structured errors, no crashes.
+```
+
+Notes:
+- Direct-only NodeGoat used to report ~17 findings; walking the lock tree
+  surfaces 267 across 1,091 package@version pairs (nested duplicates included).
+- NVD agreement on sampled CVEs (e.g. 9.3 vs 9.3) is the second-source
+  verification the proposal called for; coverage is bounded by NVD's public
+  rate limit and is always stated in the report warnings.

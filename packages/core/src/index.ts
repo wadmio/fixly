@@ -13,12 +13,38 @@ export { fetchProject } from "./github";
 export type { FetchResult, FetchedProject, FetchErrorCode } from "./github";
 
 export { parseDependencies, resolveCheckVersion } from "./parse-packages";
-export type { ParsedDependencies } from "./parse-packages";
+export type { ParsedDependencies, ParseDependenciesOptions } from "./parse-packages";
 
-export { queryOsvBatch } from "./osv";
+export { queryOsvBatch, queryOsvPackage, osvQueryKey } from "./osv";
 export type { OsvVuln, OsvQuery, OsvQueryResult } from "./osv";
 
 export { normalizeOsvResults } from "./normalize";
+
+export { enrichWithNvd, clearNvdCache } from "./nvd";
+export type { NvdEnrichment, NvdEnrichmentOptions } from "./nvd";
+
+// Package intelligence + verdicts (the engine behind check/vibecheck/MCP/guard).
+export { checkPackage } from "./verdict";
+export type {
+  PackageVerdict,
+  PackageSignals,
+  VerdictLevel,
+  CheckPackageOptions,
+} from "./verdict";
+export { enrichWithIntel, clearIntelCache } from "./intel";
+export type { IntelEnrichment } from "./intel";
+export { fetchRegistryInfo, fetchLatestVersion, clearRegistryCache } from "./registry";
+export type { RegistryInfo } from "./registry";
+export { findTyposquatTarget, editDistance } from "./typosquat";
+export type { TyposquatMatch } from "./typosquat";
+export { isPopularPackage, POPULAR_PACKAGES } from "./popular-packages";
+export { computeGrade } from "./grade";
+export type { ScanGrade, Grade, TopFix, GradeBreakdownEntry } from "./grade";
+
+// Pure scan-diff helpers (also exported at @fixly/core/compare for client-safe
+// imports).
+export { findingKey, compareFindingKeys, countBySeverity } from "./compare";
+export type { ScanDelta, SeverityCounts } from "./compare";
 
 export {
   compareSemver,
@@ -34,6 +60,8 @@ export type {
   Severity,
   DependencyType,
   DependencyEntry,
+  VulnDataSource,
+  NvdData,
   ScanVulnerability,
   ScanTarget,
   ScanError,

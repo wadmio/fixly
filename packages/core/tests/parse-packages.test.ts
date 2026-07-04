@@ -44,7 +44,7 @@ describe("parseDependencies — lockfile resolution", () => {
     expect(dependencies[0].installedVersion).toBe("1.5.0");
   });
 
-  it("resolves from a v2/v3 lockfile (packages map), ignoring nested deps", () => {
+  it("resolves the direct version from a v2/v3 lockfile, not a nested copy", () => {
     const { dependencies } = parseDependencies(
       { dependencies: { a: "^1.0.0" } },
       {
@@ -56,8 +56,12 @@ describe("parseDependencies — lockfile resolution", () => {
         },
       }
     );
-    expect(dependencies).toHaveLength(1);
-    expect(dependencies[0].installedVersion).toBe("1.9.0");
+    const direct = dependencies.find((d) => d.name === "a");
+    expect(direct?.installedVersion).toBe("1.9.0");
+    expect(direct?.dependencyType).toBe("dependencies");
+    // The nested package is surfaced as a transitive entry (new default).
+    const nested = dependencies.find((d) => d.name === "b");
+    expect(nested?.dependencyType).toBe("transitive");
   });
 });
 
@@ -78,6 +82,79 @@ describe("parseDependencies — warnings", () => {
     const w = warnings.find((m) => m.includes("Could not determine a version"));
     expect(w).toContain("x");
     expect(w).toContain("y");
+  });
+});
+
+describe("parseDependencies — transitive discovery", () => {
+  const lockV3 = {
+    lockfileVersion: 3,
+    packages: {
+      "": { name: "root" },
+      "node_modules/a": { version: "1.0.0" },
+      "node_modules/b": { version: "2.0.0" },
+      "node_modules/@scope/c": { version: "3.0.0" },
+      "node_modules/a/node_modules/b": { version: "1.5.0" },
+      "node_modules/linked": { link: true },
+    },
+  };
+
+  it("discovers transitive packages from a v2/v3 lock tree, including nested copies", () => {
+    const { dependencies } = parseDependencies({ dependencies: { a: "^1.0.0" } }, lockV3);
+    const transitive = dependencies.filter((d) => d.dependencyType === "transitive");
+    expect(transitive.map((d) => `${d.name}@${d.installedVersion}`).sort()).toEqual([
+      "@scope/c@3.0.0",
+      "b@1.5.0",
+      "b@2.0.0",
+    ]);
+    // Direct entry is not duplicated as transitive; links are skipped.
+    expect(dependencies.filter((d) => d.name === "a")).toHaveLength(1);
+    expect(dependencies.some((d) => d.name === "linked")).toBe(false);
+    // Transitive entries carry exact versions from the lock file.
+    for (const d of transitive) {
+      expect(d.installedVersion).not.toBeNull();
+      expect(d.sourceFile).toBe("package-lock.json");
+    }
+  });
+
+  it("keeps a nested different-version copy of a direct package as transitive", () => {
+    const { dependencies } = parseDependencies(
+      { dependencies: { b: "^2.0.0" } },
+      lockV3
+    );
+    const bs = dependencies.filter((d) => d.name === "b");
+    expect(bs).toHaveLength(2);
+    expect(bs.find((d) => d.dependencyType === "dependencies")?.installedVersion).toBe("2.0.0");
+    expect(bs.find((d) => d.dependencyType === "transitive")?.installedVersion).toBe("1.5.0");
+  });
+
+  it("walks nested v1 lock dependencies recursively", () => {
+    const { dependencies } = parseDependencies(
+      { dependencies: { a: "^1.0.0" } },
+      {
+        dependencies: {
+          a: { version: "1.0.0", dependencies: { deep: { version: "0.5.0" } } },
+        },
+      }
+    );
+    const deep = dependencies.find((d) => d.name === "deep");
+    expect(deep?.dependencyType).toBe("transitive");
+    expect(deep?.installedVersion).toBe("0.5.0");
+  });
+
+  it("can be disabled via includeTransitive: false", () => {
+    const { dependencies } = parseDependencies(
+      { dependencies: { a: "^1.0.0" } },
+      lockV3,
+      { includeTransitive: false }
+    );
+    expect(dependencies.every((d) => d.dependencyType !== "transitive")).toBe(true);
+  });
+
+  it("notes that transitive discovery needs a lock file when none is present", () => {
+    const { warnings } = parseDependencies({ dependencies: { a: "1.0.0" } }, null);
+    expect(warnings.some((w) => w.includes("Transitive dependencies cannot be discovered"))).toBe(
+      true
+    );
   });
 });
 

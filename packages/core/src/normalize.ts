@@ -1,6 +1,6 @@
 import type { OsvVuln } from "./osv";
-import type { ScanVulnerability, Severity } from "./types";
-import { formatAffectedRanges, isVersionInOsvRanges } from "./matching";
+import type { DependencyType, ScanVulnerability, Severity } from "./types";
+import { compareSemver, formatAffectedRanges, isVersionInOsvRanges } from "./matching";
 
 // ---------------------------------------------------------------------------
 // CVSS v3 base score calculator
@@ -90,15 +90,32 @@ function extractSeverity(vuln: OsvVuln): Severity {
   return "unknown";
 }
 
-function extractFixedVersion(vuln: OsvVuln): string | null {
+function extractFixedVersion(vuln: OsvVuln, installedVersion: string): string | null {
+  // An advisory can carry several fixed versions (one per affected range,
+  // e.g. 3.x fixed in 3.2.2 AND 4.x fixed in 4.4.10). Recommend the smallest
+  // fix that is an upgrade from the installed version; fall back to the
+  // highest fix when none compares cleanly.
+  const fixes: string[] = [];
   for (const affected of vuln.affected ?? []) {
     for (const range of affected.ranges ?? []) {
       for (const event of range.events ?? []) {
-        if (event.fixed) return event.fixed;
+        if (event.fixed) fixes.push(event.fixed);
       }
     }
   }
-  return null;
+  if (fixes.length === 0) return null;
+
+  let bestUpgrade: string | null = null;
+  let highest: string = fixes[0];
+  for (const fix of fixes) {
+    if ((compareSemver(fix, highest) ?? 0) > 0) highest = fix;
+    if ((compareSemver(fix, installedVersion) ?? -1) > 0) {
+      if (bestUpgrade === null || (compareSemver(fix, bestUpgrade) ?? 0) < 0) {
+        bestUpgrade = fix;
+      }
+    }
+  }
+  return bestUpgrade ?? highest;
 }
 
 function extractCveId(vuln: OsvVuln): string | null {
@@ -118,20 +135,28 @@ export function normalizeOsvResults(
   packageName: string,
   installedVersion: string,
   vulns: OsvVuln[],
-  versionSource: "lockfile" | "range-minimum" = "lockfile"
+  versionSource: "lockfile" | "range-minimum" = "lockfile",
+  dependencyType: DependencyType = "dependencies"
 ): ScanVulnerability[] {
   return vulns.map((vuln) => ({
     osvId: vuln.id,
     cveId: extractCveId(vuln),
     package: packageName,
     installedVersion,
-    fixedVersion: extractFixedVersion(vuln),
+    fixedVersion: extractFixedVersion(vuln, installedVersion),
     severity: extractSeverity(vuln),
     cvssVector: extractCvssVector(vuln),
     cvssScore: extractCvssScore(vuln),
     affectedRanges: formatAffectedRanges(vuln, packageName),
     versionInRange: isVersionInOsvRanges(installedVersion, vuln, packageName),
     versionSource,
+    dependencyType,
+    sources: ["osv"],
+    nvd: null,
+    malicious: vuln.id.startsWith("MAL-"),
+    knownExploited: false,
+    epssScore: null,
+    epssPercentile: null,
     title: vuln.summary ?? vuln.id,
     description: vuln.details ?? "",
     references: vuln.references?.map((r) => r.url) ?? [],

@@ -3,8 +3,10 @@
 ## Dependency Vulnerability Detection for Modern Web Applications
 
 Fixly helps developers find vulnerable third-party **npm** dependencies. It does **not** scan live
-websites — it scans a project's dependency manifests (`package.json` / `package-lock.json`) and
-checks each installed version against the [OSV](https://osv.dev) vulnerability database.
+websites — it scans a project's dependency manifests (`package.json` / `package-lock.json`), checks
+every installed package (direct **and transitive**) against the [OSV](https://osv.dev) vulnerability
+database, and cross-references CVEs against [NVD](https://nvd.nist.gov) for an independent severity
+opinion.
 
 Fixly ships two surfaces over one shared scanner:
 
@@ -22,17 +24,22 @@ Fixly ships two surfaces over one shared scanner:
 **In scope**
 
 - npm ecosystem (`package.json`, `package-lock.json` v1/v2/v3)
-- **Direct** dependencies (`dependencies` + `devDependencies`)
+- **Direct** dependencies (`dependencies` + `devDependencies`) **and transitive**
+  packages discovered in the lock file tree (exact installed versions, including
+  nested copies at different versions)
 - Public GitHub repositories (web) and the local workspace (extension)
-- OSV vulnerability data: ID/CVE, severity, CVSS, fix version, summary
-- Structured, severity-sorted reports
+- OSV vulnerability data: ID/CVE, severity, CVSS, fix version, summary — with
+  best-effort **NVD cross-referencing** per CVE (second CVSS opinion, rate-limit aware)
+- Structured, severity-sorted reports; scan-over-scan **history & deltas** in the
+  browser (localStorage — no accounts, no server storage)
+- In-editor **inline diagnostics** on `package.json` + **on-save rescans** and a
+  live status-bar indicator (VS Code extension)
 
 **Out of scope (for now)**
 
 - Scanning live/deployed websites or arbitrary URLs
-- Transitive / nested dependencies
 - Private repositories, authentication
-- Other ecosystems (PyPI, Maven, …), NVD, CI/CD gating, auto-fixing, persistence
+- Other ecosystems (PyPI, Maven, …), CI/CD gating, auto-fixing, server-side persistence
 
 ---
 
@@ -65,10 +72,12 @@ See [docs/architecture.md](docs/architecture.md) for the data flow.
 All scanning logic lives here so the web app and the extension never duplicate it.
 
 1. `parseGitHubUrl` / `fetchProjectFiles` — locate and download `package.json` / `package-lock.json`.
-2. `parsePackages` — resolve direct dependencies to concrete versions (lock file preferred), with warnings for a missing lock file or unresolvable ranges.
-3. `queryOsvBatch` — ask OSV which packages/versions are vulnerable, then fetch full records (OSV is the only live source — see [docs/vulnerability-sources.md](docs/vulnerability-sources.md)).
-4. `normalizeOsvResults` — produce a clean `ScanVulnerability` (severity, CVSS, CVE, fix version).
-5. `scanProjectFiles` / `runScan` — orchestrate the above and return a severity-sorted `ScanResult`.
+2. `parseDependencies` — resolve direct dependencies to concrete versions (lock file preferred) **and walk the full lock tree for transitive packages**, with warnings for a missing lock file or unresolvable ranges.
+3. `queryOsvBatch` — ask OSV which package@version pairs are vulnerable, then fetch full records (see [docs/vulnerability-sources.md](docs/vulnerability-sources.md)).
+4. `normalizeOsvResults` — produce a clean `ScanVulnerability` (severity, CVSS, CVE, fix version, direct/transitive origin).
+5. `enrichWithNvd` — best-effort NVD cross-reference per CVE (independent CVSS score; degrades to a warning under rate limits, never fails a scan).
+6. `scanProjectFiles` / `runScan` — orchestrate the above and return a severity-sorted `ScanResult`.
+7. `findingKey` / `compareFindingKeys` — pure scan-diff helpers powering browser-side history deltas.
 
 ### Web app — `@fixly/web`
 

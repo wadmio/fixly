@@ -22,6 +22,8 @@ function fakeResult(repo: string): ScanResult {
     source: "osv",
     dependencies: [],
     totalPackages: 0,
+    directPackages: 0,
+    transitivePackages: 0,
     resolvedPackages: 0,
     vulnerabilities: [],
     warnings: [],

@@ -15,6 +15,13 @@ function vuln(severity: Severity, pkg = "pkg"): ScanVulnerability {
     affectedRanges: [],
     versionInRange: null,
     versionSource: "lockfile",
+    dependencyType: "dependencies",
+    sources: ["osv"],
+    nvd: null,
+    malicious: false,
+    knownExploited: false,
+    epssScore: null,
+    epssPercentile: null,
     title: severity,
     description: "",
     references: [],
@@ -87,5 +94,102 @@ describe("scanProjectFiles", () => {
     expect(r.resolvedPackages).toBe(1);
     expect(r.vulnerabilities).toEqual([]);
     expect(r.warnings.some((w) => w.includes("No package-lock.json"))).toBe(true);
+  });
+
+  it("scans transitive packages from the lock tree and tags findings by origin", async () => {
+    // Direct: a@1.0.0 (clean). Transitive: b@2.0.0 (vulnerable, nested).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: { body?: string }) => {
+        if (url.includes("/querybatch")) {
+          const body = JSON.parse(init?.body ?? "{}") as {
+            queries: Array<{ package: { name: string } }>;
+          };
+          return jsonRes(200, {
+            results: body.queries.map((q) =>
+              q.package.name === "b" ? { vulns: [{ id: "GHSA-b" }] } : {}
+            ),
+          });
+        }
+        if (url.includes("/vulns/GHSA-b")) {
+          return jsonRes(200, {
+            id: "GHSA-b",
+            summary: "b is vulnerable",
+            database_specific: { severity: "HIGH" },
+          });
+        }
+        return jsonRes(200, {});
+      })
+    );
+
+    const r = await scanProjectFiles({
+      packageJson: { dependencies: { a: "^1.0.0" } },
+      packageLock: {
+        lockfileVersion: 3,
+        packages: {
+          "": { name: "root" },
+          "node_modules/a": { version: "1.0.0" },
+          "node_modules/a/node_modules/b": { version: "2.0.0" },
+        },
+      },
+      repo: "demo",
+      nvd: false,
+      intel: false,
+    });
+
+    expect(r.error).toBeUndefined();
+    expect(r.directPackages).toBe(1);
+    expect(r.transitivePackages).toBe(1);
+    expect(r.totalPackages).toBe(2);
+    expect(r.resolvedPackages).toBe(2);
+    expect(r.vulnerabilities).toHaveLength(1);
+    expect(r.vulnerabilities[0].package).toBe("b");
+    expect(r.vulnerabilities[0].dependencyType).toBe("transitive");
+    expect(r.vulnerabilities[0].sources).toEqual(["osv"]);
+  });
+
+  it("checks the same package at two versions without collisions", async () => {
+    // lodash direct at 4.17.21 (clean) AND nested at 3.10.1 (vulnerable).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: { body?: string }) => {
+        if (url.includes("/querybatch")) {
+          const body = JSON.parse(init?.body ?? "{}") as {
+            queries: Array<{ package: { name: string }; version: string }>;
+          };
+          return jsonRes(200, {
+            results: body.queries.map((q) =>
+              q.version === "3.10.1" ? { vulns: [{ id: "GHSA-old" }] } : {}
+            ),
+          });
+        }
+        if (url.includes("/vulns/GHSA-old")) {
+          return jsonRes(200, { id: "GHSA-old", summary: "old lodash" });
+        }
+        return jsonRes(200, {});
+      })
+    );
+
+    const r = await scanProjectFiles({
+      packageJson: { dependencies: { lodash: "^4.17.21" } },
+      packageLock: {
+        lockfileVersion: 3,
+        packages: {
+          "": { name: "root" },
+          "node_modules/lodash": { version: "4.17.21" },
+          "node_modules/x": { version: "1.0.0" },
+          "node_modules/x/node_modules/lodash": { version: "3.10.1" },
+        },
+      },
+      repo: "demo",
+      nvd: false,
+      intel: false,
+    });
+
+    expect(r.error).toBeUndefined();
+    expect(r.vulnerabilities).toHaveLength(1);
+    expect(r.vulnerabilities[0].package).toBe("lodash");
+    expect(r.vulnerabilities[0].installedVersion).toBe("3.10.1");
+    expect(r.vulnerabilities[0].dependencyType).toBe("transitive");
   });
 });

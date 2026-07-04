@@ -48,8 +48,16 @@ export default function ReportSummary({ result }: { result: ScanResult }) {
         </div>
         <p className="mt-1 text-sm text-[#BFC3C7]">
           {result.totalPackages}{" "}
-          {result.totalPackages === 1 ? "dependency" : "dependencies"} &middot;{" "}
-          {result.resolvedPackages} checked
+          {result.totalPackages === 1 ? "package" : "packages"}
+          {result.transitivePackages > 0 ? (
+            <>
+              {" "}
+              <span className="text-[#BFC3C7]/60">
+                ({result.directPackages} direct + {result.transitivePackages} transitive)
+              </span>
+            </>
+          ) : null}{" "}
+          &middot; {result.resolvedPackages} checked
           {result.target.branch ? (
             <>
               {" "}
@@ -57,7 +65,10 @@ export default function ReportSummary({ result }: { result: ScanResult }) {
               <span className="font-mono text-xs">{result.target.branch}</span>
             </>
           ) : null}{" "}
-          &middot; {scannedAt} &middot; OSV
+          &middot; {scannedAt} &middot;{" "}
+          <span title={result.source === "osv+nvd" ? "Findings cross-referenced against the National Vulnerability Database" : "OSV database"}>
+            {result.source === "osv+nvd" ? "OSV + NVD" : "OSV"}
+          </span>
         </p>
         {(result.target.filesFound.length > 0 || result.target.subpath) && (
           <p className="mt-1 text-xs text-[#BFC3C7]/60">

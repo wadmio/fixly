@@ -28,14 +28,14 @@ function buildSummaryText(result: ScanResult): string {
   const counts = severityCounts(result);
   const lines = [
     `Fixly scan — ${result.repo}`,
-    `Scanned: ${result.scannedAt}`,
-    `Packages: ${result.totalPackages} declared, ${result.resolvedPackages} checked`,
+    `Scanned: ${result.scannedAt} (source: ${result.source === "osv+nvd" ? "OSV + NVD" : "OSV"})`,
+    `Packages: ${result.totalPackages} (${result.directPackages} direct, ${result.transitivePackages} transitive), ${result.resolvedPackages} checked`,
     `Vulnerabilities: ${result.vulnerabilities.length} (critical ${counts.critical}, high ${counts.high}, medium ${counts.medium}, low ${counts.low}, unknown ${counts.unknown})`,
     "",
   ];
   for (const v of result.vulnerabilities) {
     lines.push(
-      `- [${v.severity.toUpperCase()}] ${v.package}@${v.installedVersion} ${v.osvId}${v.cveId ? ` (${v.cveId})` : ""}${v.fixedVersion ? ` → fix ${v.fixedVersion}` : ""}`
+      `- [${v.severity.toUpperCase()}] ${v.package}@${v.installedVersion}${v.dependencyType === "transitive" ? " (transitive)" : ""} ${v.osvId}${v.cveId ? ` (${v.cveId})` : ""}${v.fixedVersion ? ` → fix ${v.fixedVersion}` : ""}`
     );
   }
   if (result.warnings.length > 0) {
@@ -54,15 +54,24 @@ function rowHtml(v: ScanVulnerability): string {
     ? `<a href="${escapeHtml(v.references[0])}">${escapeHtml(v.osvId)}</a>`
     : escapeHtml(v.osvId);
   const cvss = v.cvssScore !== null ? v.cvssScore.toFixed(1) : "—";
+  const nvd =
+    v.nvd?.cvssScore != null
+      ? `<div class="muted" style="font-size:10px" title="NVD's independent CVSS score for this CVE">NVD ${v.nvd.cvssScore.toFixed(1)}</div>`
+      : "";
+  const typeChip =
+    v.dependencyType === "transitive"
+      ? ` <span class="chip" title="Pulled in by another dependency (found in the lock file tree)">transitive</span>`
+      : "";
+  const sources = escapeHtml(v.sources.join(" · ").toUpperCase());
   const fix = v.fixedVersion
     ? `<span class="fix">→ ${escapeHtml(v.fixedVersion)}</span>`
     : "—";
   return `<tr>
-    <td><div class="pkg">${escapeHtml(v.package)}</div><div class="muted mono">v${escapeHtml(v.installedVersion)}</div></td>
-    <td class="mono">${idCell}</td>
+    <td><div class="pkg">${escapeHtml(v.package)}${typeChip}</div><div class="muted mono">v${escapeHtml(v.installedVersion)}</div></td>
+    <td class="mono">${idCell}<div class="muted" style="font-size:10px">${sources}</div></td>
     <td class="mono muted">${v.cveId ? escapeHtml(v.cveId) : "—"}</td>
     <td><span class="badge sev-${v.severity}">${escapeHtml(v.severity)}</span></td>
-    <td class="mono">${cvss}</td>
+    <td class="mono">${cvss}${nvd}</td>
     <td class="summary">${escapeHtml(v.title)}</td>
     <td class="mono">${fix}</td>
   </tr>`;
@@ -127,6 +136,7 @@ function renderHtml(result: ScanResult, nonce: string): string {
   .fix { color: #34d399; }
   a { color: #BFC3C7; }
   .clean { background: #1A1A1A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 28px; text-align: center; color: #BFC3C7; }
+  .chip { display: inline-block; border: 1px solid rgba(209,213,219,0.25); border-radius: 4px; padding: 0 4px; font-size: 10px; font-weight: 400; color: #BFC3C7; vertical-align: middle; }
   .badge { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600; text-transform: capitalize; }
   .sev-critical { background: #450a0a; color: #f87171; }
   .sev-high { background: #431407; color: #fb923c; }
@@ -137,7 +147,7 @@ function renderHtml(result: ScanResult, nonce: string): string {
 </head>
 <body>
   <h1>${escapeHtml(result.repo)}</h1>
-  <div class="sub">${result.totalPackages} dependencies · ${result.resolvedPackages} checked${result.target.branch ? ` · branch ${escapeHtml(result.target.branch)}` : ""} · ${escapeHtml(result.scannedAt)} · OSV</div>
+  <div class="sub">${result.totalPackages} packages${result.transitivePackages > 0 ? ` (${result.directPackages} direct + ${result.transitivePackages} transitive)` : ""} · ${result.resolvedPackages} checked${result.target.branch ? ` · branch ${escapeHtml(result.target.branch)}` : ""} · ${escapeHtml(result.scannedAt)} · ${result.source === "osv+nvd" ? "OSV + NVD" : "OSV"}</div>
   ${result.target.filesFound.length ? `<div class="sub">files: ${escapeHtml(result.target.filesFound.join(", "))}${result.target.filesMissing.length ? ` · missing: ${escapeHtml(result.target.filesMissing.join(", "))}` : ""}</div>` : ""}
 
   <div class="actions">
@@ -147,7 +157,7 @@ function renderHtml(result: ScanResult, nonce: string): string {
   </div>
 
   <div class="cards">
-    ${cardHtml("Dependencies", result.totalPackages)}
+    ${cardHtml("Packages", result.totalPackages)}
     ${cardHtml("Vulnerabilities", result.vulnerabilities.length)}
     ${SEVERITIES.map((s) => cardHtml(s, counts[s])).join("")}
   </div>
@@ -197,6 +207,12 @@ export class FixlyPanel {
       { enableScripts: true, retainContextWhenHidden: true }
     );
     FixlyPanel.current = new FixlyPanel(panel, result, onRescan);
+  }
+
+  /** Refresh the report if the panel is already open (e.g. after an on-save
+   *  rescan) without stealing focus; no-op when the panel is closed. */
+  static updateIfOpen(result: ScanResult): void {
+    FixlyPanel.current?.update(result);
   }
 
   private constructor(

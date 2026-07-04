@@ -7,7 +7,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./url": "./src/github-url.ts"
+    "./url": "./src/github-url.ts",
+    "./compare": "./src/compare.ts"
   },
   "scripts": {
     "lint": "eslint .",
