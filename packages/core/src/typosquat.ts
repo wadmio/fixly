@@ -15,6 +15,12 @@ function normalizeName(name: string): string {
   return name.toLowerCase().replace(/^@[^/]+\//, "").replace(/[-_.]/g, "");
 }
 
+/** The `@scope/` prefix of a name (lower-cased), or null if unscoped. */
+function scopeOf(name: string): string | null {
+  const m = name.toLowerCase().match(/^@[^/]+\//);
+  return m ? m[0] : null;
+}
+
 /**
  * Optimal string alignment distance (Damerau-Levenshtein without repeated
  * transpositions) — insertions, deletions, substitutions, adjacent swaps all
@@ -92,8 +98,14 @@ export function findTyposquatTarget(name: string): TyposquatMatch | null {
   // always suspicious; distance 2 only for longer names where 2 typos still
   // land near the original.
   const norm = normalizeName(lower);
+  const candScope = scopeOf(lower);
   let best: { target: string; distance: number } | null = null;
   for (const popular of POPULAR_PACKAGES) {
+    // Names with different scopes that happen to share a tail (e.g.
+    // "@types/node" vs "@vercel/node") are NOT typosquats — npm scopes are
+    // owned and scoped installs are explicit. Only compare within the same
+    // scope (or unscoped-to-unscoped). Same-scope typos still get caught.
+    if (candScope !== scopeOf(popular)) continue;
     const popNorm = normalizeName(popular);
     if (popNorm === norm && popular !== lower) {
       // Same letters, different separators/scope ("fast-glob" vs "fastglob").

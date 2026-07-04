@@ -42,4 +42,12 @@ describe("findTyposquatTarget", () => {
     expect(findTyposquatTarget("my-cool-internal-thing")).toBeNull();
     expect(findTyposquatTarget("@myorg/design-tokens")).toBeNull();
   });
+
+  it("does not flag scoped packages that merely share a tail with a differently-scoped popular one", () => {
+    // Regression: "@types/node" and "@vercel/node" both reduce to "node" once
+    // the scope is stripped — but they are NOT typosquats of each other.
+    expect(findTyposquatTarget("@types/node")).toBeNull();
+    expect(findTyposquatTarget("@types/react")).toBeNull();
+    expect(findTyposquatTarget("@types/express")).toBeNull();
+  });
 });
