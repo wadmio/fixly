@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePackageSpec } from "../src/commands/check";
 import { parseInstallCommand } from "../src/commands/guard";
+import { parseGuardArgs } from "../src/cli";
 import { scanLocalProject } from "../src/local";
 
 describe("parsePackageSpec", () => {
@@ -57,6 +58,36 @@ describe("parseInstallCommand", () => {
 
   it("treats a bare lockfile install as having no specs", () => {
     expect(parseInstallCommand(["npm", "install"])?.specs).toEqual([]);
+  });
+});
+
+describe("parseGuardArgs", () => {
+  it("does NOT treat the wrapped command's --force as fixly's block-override", () => {
+    // The security bug: `npm install --force` must not disarm guard's BLOCK.
+    const { argv, force, yes } = parseGuardArgs(["--", "npm", "install", "--force", "lodahs"]);
+    expect(force).toBe(false);
+    expect(yes).toBe(false);
+    expect(argv).toEqual(["npm", "install", "--force", "lodahs"]);
+  });
+
+  it("honors fixly's --force/--yes when placed before the separator", () => {
+    const { argv, force, yes } = parseGuardArgs(["--force", "--yes", "--", "npm", "install", "x"]);
+    expect(force).toBe(true);
+    expect(yes).toBe(true);
+    expect(argv).toEqual(["npm", "install", "x"]);
+  });
+
+  it("passes a clean wrapped install through with no fixly flags set", () => {
+    const { argv, force, yes } = parseGuardArgs(["--", "pnpm", "add", "-D", "vitest"]);
+    expect(force).toBe(false);
+    expect(yes).toBe(false);
+    expect(argv).toEqual(["pnpm", "add", "-D", "vitest"]);
+  });
+
+  it("supports the legacy no-separator form (fixly flags stripped from argv)", () => {
+    const { argv, force } = parseGuardArgs(["--force", "npm", "install", "x"]);
+    expect(force).toBe(true);
+    expect(argv).toEqual(["npm", "install", "x"]);
   });
 });
 

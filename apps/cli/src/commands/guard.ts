@@ -1,8 +1,11 @@
-// `fixly guard -- npm install <pkgs>` — the install firewall. Every package
-// on the command line is verdict-checked BEFORE the real package manager
-// runs: BLOCK aborts, CAUTION asks (or requires --yes in CI), SAFE passes
-// through untouched. The wrapped command runs with inherited stdio, so the
-// experience is exactly `npm install` — with a seatbelt.
+// `fixly guard -- npm install <pkgs>` — a pre-install check, not a firewall.
+// Every package NAMED on the command line is verdict-checked BEFORE the real
+// package manager runs: BLOCK aborts, CAUTION asks (or requires --yes in CI),
+// SAFE passes through untouched. Bare lockfile installs, hand-edited
+// package.json entries, and transitive dependencies are NOT pre-checked —
+// that's what `fixly vibecheck` after install is for. The wrapped command
+// runs with inherited stdio, so the experience is exactly `npm install` —
+// with a seatbelt.
 
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
@@ -143,7 +146,9 @@ export async function guard(options: GuardOptions): Promise<number> {
     if (didYouMean.length > 0) {
       process.stderr.write(`  ${yellow("did you mean:")} ${didYouMean.join(", ")}\n`);
     }
-    process.stderr.write(`  ${dim("(--force overrides; you own the consequences)")}\n`);
+    process.stderr.write(
+      `  ${dim("(put --force before -- to override, e.g. `fixly guard --force -- …`; you own the consequences)")}\n`
+    );
     return 2;
   }
   if (blocked.length > 0 && options.force) {

@@ -7,6 +7,7 @@
 // Zero runtime dependencies beyond @fixly/core (bundled). Node >= 20.
 
 import { parseArgs } from "node:util";
+import { pathToFileURL } from "node:url";
 import { vibecheck } from "./commands/vibecheck";
 import { scan, type FailOn } from "./commands/scan";
 import { check } from "./commands/check";
@@ -22,7 +23,7 @@ const HELP = `
     fixly vibecheck [dir]             grade your project (A–F) + top fixes
     fixly scan [dir | github-url]     full vulnerability report
     fixly check <pkg>[@version]       is this package safe to install?
-    fixly guard -- npm install <pkg>  firewall: verdict-check, then install
+    fixly guard -- npm install <pkg>  verdict-check named packages, then install
 
   ${bold("Options")}
     --json                machine-readable output (all commands)
@@ -39,28 +40,44 @@ const HELP = `
     0 ok · 1 gate failed / caution verdict · 2 error / block verdict
 
   ${bold("Examples")}
-    npx fixly vibecheck
-    npx fixly check lodahs
+    fixly vibecheck
+    fixly check lodahs
     fixly guard -- npm install express lodahs
     fixly scan https://github.com/OWASP/NodeGoat --fail-on high
     fixly scan --sarif > fixly.sarif
 `;
 
+/**
+ * Split the args after `guard` into fixly's own flags and the wrapped command.
+ * fixly flags (`--yes`/`--force`) are honored ONLY before the `--` separator;
+ * anything after `--` belongs to the wrapped package manager verbatim, so its
+ * own `--force`/`--yes` can never override a BLOCK/CAUTION verdict.
+ */
+export function parseGuardArgs(guardArgs: string[]): {
+  argv: string[];
+  yes: boolean;
+  force: boolean;
+} {
+  const separator = guardArgs.indexOf("--");
+  const fixlyFlags = separator === -1 ? guardArgs : guardArgs.slice(0, separator);
+  const yes = fixlyFlags.includes("--yes");
+  const force = fixlyFlags.includes("--force");
+  const argv =
+    separator !== -1
+      ? guardArgs.slice(separator + 1)
+      : fixlyFlags.filter((a) => a !== "--yes" && a !== "--force");
+  return { argv, yes, force };
+}
+
 async function main(): Promise<number> {
   const rawArgs = process.argv.slice(2);
 
-  // `guard` owns everything after itself — the wrapped command's flags
-  // (e.g. `npm install -D`) must NOT be parsed as fixly flags.
+  // `guard` owns everything after the `--` separator — the wrapped command's
+  // own flags (e.g. `npm install --force`) must NOT be read as fixly flags,
+  // or npm's `--force`/`--yes` would silently override a BLOCK verdict.
   if (rawArgs[0] === "guard") {
-    const guardArgs = rawArgs.slice(1);
-    const yes = guardArgs.includes("--yes");
-    const force = guardArgs.includes("--force");
-    const separator = guardArgs.indexOf("--");
-    const wrapped =
-      separator !== -1
-        ? guardArgs.slice(separator + 1)
-        : guardArgs.filter((a) => a !== "--yes" && a !== "--force");
-    return guard({ argv: wrapped, yes, force });
+    const { argv, yes, force } = parseGuardArgs(rawArgs.slice(1));
+    return guard({ argv, yes, force });
   }
 
   const { values, positionals } = parseArgs({
@@ -126,11 +143,15 @@ async function main(): Promise<number> {
   }
 }
 
-main()
-  .then((code) => {
-    process.exitCode = code;
-  })
-  .catch((err: unknown) => {
-    process.stderr.write(`${red("✖")} ${err instanceof Error ? err.message : String(err)}\n`);
-    process.exitCode = 2;
-  });
+// Run only when invoked as the CLI entrypoint — importing this module (e.g.
+// from tests, to reach parseGuardArgs) must not execute the command dispatcher.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main()
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((err: unknown) => {
+      process.stderr.write(`${red("✖")} ${err instanceof Error ? err.message : String(err)}\n`);
+      process.exitCode = 2;
+    });
+}
