@@ -83,24 +83,36 @@ async function getFileContent(
   filePath: string,
   ref: string
 ): Promise<FileResult> {
-  const res = await ghGet(
-    `/repos/${owner}/${repo}/contents/${filePath}?ref=${encodeURIComponent(ref)}`
+  // Ask for the RAW file, not the base64 JSON envelope. The default Contents
+  // API only base64-encodes files up to 1 MB; larger files (common for
+  // package-lock.json) come back with `encoding: "none"` and empty content,
+  // which previously fell through to a swallowed error and a bogus "no lock
+  // file" report. The raw media type serves files up to 100 MB directly.
+  const res = await fetchWithRetry(
+    `${GH_API}/repos/${owner}/${repo}/contents/${filePath}?ref=${encodeURIComponent(ref)}`,
+    { headers: { ...authHeaders(), Accept: "application/vnd.github.raw" } }
   );
   if (res.status === 404) return { kind: "missing" };
-  if (isRateLimited(res)) return { kind: "rate_limited" };
-  if (res.status === 401 || res.status === 403) {
+
+  let text: string | null = null;
+  try {
+    text = await res.text();
+  } catch {
+    text = null;
+  }
+
+  if (res.status === 403 || res.status === 429) {
+    // Raw errors still return a JSON body carrying the rate-limit message.
+    if (text && /rate limit/i.test(text)) return { kind: "rate_limited" };
     return { kind: "error", message: "Access to the file was forbidden." };
   }
   if (res.status !== 200) {
     return { kind: "error", message: `GitHub API error (${res.status}).` };
   }
-  if (res.body?.encoding === "base64" && typeof res.body.content === "string") {
-    return {
-      kind: "found",
-      content: Buffer.from(res.body.content.replace(/\n/g, ""), "base64").toString("utf-8"),
-    };
+  if (text === null) {
+    return { kind: "error", message: "Unexpected GitHub response while reading a file." };
   }
-  return { kind: "error", message: "Unexpected GitHub response while reading a file." };
+  return { kind: "found", content: text };
 }
 
 /**

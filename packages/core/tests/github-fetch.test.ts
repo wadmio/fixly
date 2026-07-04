@@ -10,10 +10,6 @@ function jsonRes(status: number, body: unknown) {
   };
 }
 
-function b64(obj: unknown): string {
-  return Buffer.from(JSON.stringify(obj), "utf-8").toString("base64");
-}
-
 afterEach(() => vi.unstubAllGlobals());
 
 describe("fetchProject — structured error codes", () => {
@@ -70,8 +66,8 @@ describe("fetchProject — success", () => {
       "fetch",
       vi.fn(async (url: string) => {
         if (url.endsWith("/repos/o/r")) return jsonRes(200, { default_branch: "main" });
-        if (url.includes("/contents/package.json"))
-          return jsonRes(200, { encoding: "base64", content: b64(pkg) });
+        // Raw media type: contents come back as the file text itself.
+        if (url.includes("/contents/package.json")) return jsonRes(200, pkg);
         if (url.includes("/contents/package-lock.json"))
           return jsonRes(404, { message: "Not Found" });
         return jsonRes(200, {});
@@ -84,6 +80,34 @@ describe("fetchProject — success", () => {
       expect(r.project.packageJson.name).toBe("demo");
       expect(r.project.filesFound).toContain("package.json");
       expect(r.project.filesMissing).toContain("package-lock.json");
+    }
+  });
+
+  it("reads a package-lock.json too large for the base64 Contents API (raw media type)", async () => {
+    const pkg = { name: "demo", dependencies: { "left-pad": "^1.3.0" } };
+    // A lock file over 1 MB: the old base64 path returned encoding:"none" with
+    // empty content and was mislabeled "not found". The raw path serves it.
+    const bigLock = {
+      name: "demo",
+      lockfileVersion: 3,
+      packages: { "": {}, "node_modules/left-pad": { version: "1.3.0" } },
+      _padding: "x".repeat(1_100_000),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/repos/o/r")) return jsonRes(200, { default_branch: "main" });
+        if (url.includes("/contents/package.json")) return jsonRes(200, pkg);
+        if (url.includes("/contents/package-lock.json")) return jsonRes(200, bigLock);
+        return jsonRes(200, {});
+      })
+    );
+    const r = await fetchProject("o", "r");
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.project.filesFound).toContain("package-lock.json");
+      expect(r.project.filesMissing).not.toContain("package-lock.json");
+      expect(r.project.packageLock.packages["node_modules/left-pad"].version).toBe("1.3.0");
     }
   });
 });
