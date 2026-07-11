@@ -5,8 +5,10 @@ import {
   findingKey,
   countBySeverity,
   computeGrade,
+  buildRemediationPlan,
   type ScanResult,
 } from "@fixly/core";
+import RemediationPlanCard from "@/components/RemediationPlanCard";
 import ReportSummary from "@/components/ReportSummary";
 import ScoreCard from "@/components/ScoreCard";
 import ScanResultsTable from "@/components/ScanResultsTable";
@@ -131,6 +133,8 @@ export default async function ResultsPage(props: {
           <ReportSummary result={result} />
 
           <ScoreCard grade={computeGrade(result)} />
+
+          <RemediationPlanCard plan={buildRemediationPlan(result)} />
 
           <ScanHistoryRecorder entry={historyEntry(result, repo, fixture)} />
 
