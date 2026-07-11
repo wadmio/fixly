@@ -3,8 +3,10 @@ import type { ScanResult, Severity } from "@fixly/core";
 import { scanWorkspace } from "./scanner";
 import { FixlyPanel } from "./panel";
 import { updateDiagnostics } from "./diagnostics";
+import { FixlyQuickFixProvider } from "./quickfix";
 
 let output: vscode.OutputChannel;
+let quickFixes: FixlyQuickFixProvider;
 let statusBar: vscode.StatusBarItem;
 let diagnostics: vscode.DiagnosticCollection;
 let lastResult: ScanResult | undefined;
@@ -20,6 +22,18 @@ export function activate(context: vscode.ExtensionContext): void {
 
   diagnostics = vscode.languages.createDiagnosticCollection("fixly");
   context.subscriptions.push(diagnostics);
+
+  quickFixes = new FixlyQuickFixProvider();
+  context.subscriptions.push(
+    vscode.languages.registerCodeActionsProvider(
+      [
+        { language: "json", pattern: "**/package.json" },
+        { language: "jsonc", pattern: "**/package.json" },
+      ],
+      quickFixes,
+      FixlyQuickFixProvider.metadata
+    )
+  );
 
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBar.name = "Fixly";
@@ -151,6 +165,7 @@ async function runScan(opts: { revealPanel: boolean; quiet: boolean }): Promise<
         lastResult = result;
         updateStatusBar(result);
 
+        quickFixes.updateFromResult(result);
         const folder = vscode.workspace.workspaceFolders?.[0];
         if (folder) await updateDiagnostics(diagnostics, folder, result);
 
