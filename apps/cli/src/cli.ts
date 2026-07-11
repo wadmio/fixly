@@ -13,6 +13,8 @@ import type { Grade } from "@fixly/core";
 import { scan, type FailOn } from "./commands/scan";
 import { check } from "./commands/check";
 import { guard } from "./commands/guard";
+import { fix } from "./commands/fix";
+import { watch } from "./commands/watch";
 import { bold, dim, red } from "./ui";
 
 const VERSION = "0.1.0";
@@ -25,6 +27,8 @@ const HELP = `
     fixly scan [dir | github-url]     full vulnerability report
     fixly check <pkg>[@version]       is this package safe to install?
     fixly guard -- npm install <pkg>  verdict-check named packages, then install
+    fixly fix [dir]                   remediation plan + Grade Forecast; --write applies it
+    fixly watch [dir]                 live re-scan on package.json/lock changes
 
   ${bold("Options")}
     --json                machine-readable output (all commands)
@@ -33,6 +37,7 @@ const HELP = `
                           (scan; default: never. Malware always fails a gate.)
     --fail-under <grade>  exit 1 if the Fixly Score is below A|B|C|D|F (vibecheck)
     --no-transitive       direct dependencies only (scan/vibecheck)
+    --write               apply the remediation plan to package.json (fix)
     --yes                 auto-accept caution verdicts (guard, CI)
     --force               override BLOCK verdicts (guard; you own the risk)
     -v, --version         print version
@@ -47,6 +52,7 @@ const HELP = `
     fixly guard -- npm install express lodahs
     fixly scan https://github.com/OWASP/NodeGoat --fail-on high
     fixly scan --sarif > fixly.sarif
+    fixly fix --write && npm install
 `;
 
 /**
@@ -92,6 +98,7 @@ async function main(): Promise<number> {
       "fail-under": { type: "string" },
       transitive: { type: "boolean", default: true },
       "no-transitive": { type: "boolean", default: false },
+      write: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
       version: { type: "boolean", short: "v", default: false },
     },
@@ -143,6 +150,12 @@ async function main(): Promise<number> {
         version: VERSION,
       });
     }
+
+    case "fix":
+      return fix({ dir: rest[0] ?? ".", json: values.json, write: values.write });
+
+    case "watch":
+      return watch({ dir: rest[0] ?? "." });
 
     case "check": {
       if (!rest[0]) {
