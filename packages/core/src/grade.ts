@@ -50,6 +50,12 @@ const POC_PENALTY = 10; // public exploit PoC exists — weaker than KEV, strong
 const HIGH_EPSS_PENALTY = 5; // EPSS ≥ 0.1 without a KEV listing
 const MALICIOUS_PENALTY = 100; // malware = automatic F
 
+/** Points a single finding deducts from the Fixly Score (used by the
+ *  remediation engine to rank actions by exactly what they recover). */
+export function findingPenalty(v: ScanVulnerability): number {
+  return penaltyFor(v).points;
+}
+
 function penaltyFor(v: ScanVulnerability): { points: number; reason: string } {
   if (v.malicious) {
     return {

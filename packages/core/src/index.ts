@@ -40,8 +40,19 @@ export type { TyposquatMatch } from "./typosquat";
 export { isPopularPackage, POPULAR_PACKAGES } from "./popular-packages";
 export { scoreNameRisk, isNameModelAvailable, buildNameFeatures, resetNameModel } from "./name-model";
 export type { NameRiskResult } from "./name-model";
-export { computeGrade } from "./grade";
+export { computeGrade, findingPenalty } from "./grade";
 export type { ScanGrade, Grade, TopFix, GradeBreakdownEntry } from "./grade";
+
+// Remediation engine — executable fix plan + Grade Forecast for a scan.
+export { buildRemediationPlan, applyRemediationPlan } from "./remediate";
+export type {
+  RemediationPlan,
+  RemediationAction,
+  RemediationKind,
+  UnfixableFinding,
+  GradeForecast,
+  AppliedRemediation,
+} from "./remediate";
 
 // Pure scan-diff helpers (also exported at @fixly/core/compare for client-safe
 // imports).
