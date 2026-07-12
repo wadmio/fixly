@@ -1,0 +1,18 @@
+{
+  // F5 → builds the extension, launches an Extension Development Host, and
+  // opens the committed guardian demo project. See docs/extension-demo.md.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Fixly Extension (guardian demo)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/apps/extension",
+        "${workspaceFolder}/examples/guardian-demo"
+      ],
+      "outFiles": ["${workspaceFolder}/apps/extension/dist/**/*.js"],
+      "preLaunchTask": "build-extension"
+    }
+  ]
+}

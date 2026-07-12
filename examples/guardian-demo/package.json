@@ -1,0 +1,8 @@
+{
+  "name": "guardian-demo",
+  "version": "1.0.0",
+  "description": "Fixly guardian demo — open in the Extension Development Host (F5), then attack with: npm install lodash@4.17.20",
+  "dependencies": {
+    "lodash": "^4.18.0"
+  }
+}
