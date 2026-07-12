@@ -96,5 +96,29 @@ describe("renderHtml", () => {
   it("renders a clean state when there are no vulnerabilities", () => {
     const html = renderHtml(result({ vulnerabilities: [] }), "n");
     expect(html).toContain("No vulnerabilities found");
+    expect(html).not.toContain("Fix Everything");
+  });
+
+  it("shows the Fix Everything button and Grade Forecast when fixes exist", () => {
+    const html = renderHtml(result(), "n");
+    expect(html).toContain("Fix Everything &amp; Verify");
+    expect(html).toContain("Fix everything →");
+    expect(html).toContain('id="fixall"');
+  });
+
+  it("renders the guardian activity feed with MTTR badges, escaped", () => {
+    const html = renderHtml(result(), "n", [
+      { at: "18:19:59", kind: "remediated", text: "remediated 1 package <b>x</b>", mttrMs: 3200 },
+      { at: "18:19:55", kind: "detected", text: "5 new findings in lodash" },
+    ]);
+    expect(html).toContain("Guardian activity");
+    expect(html).toContain("MTTR 3.2s");
+    expect(html).toContain("remediated 1 package &lt;b&gt;x&lt;/b&gt;");
+    expect(html).not.toContain("<b>x</b>");
+  });
+
+  it("omits the activity feed when there is no activity", () => {
+    const html = renderHtml(result(), "n");
+    expect(html).not.toContain("Guardian activity");
   });
 });

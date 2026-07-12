@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { ScanResult } from "@fixly/core";
-import { renderHtml, buildSummaryText } from "./panel-render";
+import { renderHtml, buildSummaryText, type ActivityEvent } from "./panel-render";
 
 function makeNonce(): string {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -19,11 +19,12 @@ export class FixlyPanel {
   private readonly disposables: vscode.Disposable[] = [];
   private result: ScanResult;
   private onRescan: () => void;
+  private activity: ActivityEvent[];
 
-  static show(result: ScanResult, onRescan: () => void): void {
+  static show(result: ScanResult, onRescan: () => void, activity: ActivityEvent[] = []): void {
     if (FixlyPanel.current) {
       FixlyPanel.current.onRescan = onRescan;
-      FixlyPanel.current.update(result);
+      FixlyPanel.current.update(result, activity);
       FixlyPanel.current.panel.reveal(vscode.ViewColumn.Beside);
       return;
     }
@@ -33,23 +34,25 @@ export class FixlyPanel {
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true }
     );
-    FixlyPanel.current = new FixlyPanel(panel, result, onRescan);
+    FixlyPanel.current = new FixlyPanel(panel, result, onRescan, activity);
   }
 
-  /** Refresh the report if the panel is already open (e.g. after an on-save
+  /** Refresh the report if the panel is already open (e.g. after a guardian
    *  rescan) without stealing focus; no-op when the panel is closed. */
-  static updateIfOpen(result: ScanResult): void {
-    FixlyPanel.current?.update(result);
+  static updateIfOpen(result: ScanResult, activity: ActivityEvent[] = []): void {
+    FixlyPanel.current?.update(result, activity);
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     result: ScanResult,
-    onRescan: () => void
+    onRescan: () => void,
+    activity: ActivityEvent[]
   ) {
     this.panel = panel;
     this.result = result;
     this.onRescan = onRescan;
+    this.activity = activity;
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.panel.webview.onDidReceiveMessage(
@@ -60,19 +63,23 @@ export class FixlyPanel {
     this.render();
   }
 
-  update(result: ScanResult): void {
+  update(result: ScanResult, activity: ActivityEvent[] = this.activity): void {
     this.result = result;
+    this.activity = activity;
     this.render();
   }
 
   private render(): void {
-    this.panel.webview.html = renderHtml(this.result, makeNonce());
+    this.panel.webview.html = renderHtml(this.result, makeNonce(), this.activity);
   }
 
   private async handleMessage(msg: { type: string }): Promise<void> {
     switch (msg.type) {
       case "rescan":
         this.onRescan();
+        break;
+      case "fixAll":
+        await vscode.commands.executeCommand("fixly.fixEverything");
         break;
       case "copySummary":
         await vscode.env.clipboard.writeText(buildSummaryText(this.result));

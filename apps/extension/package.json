@@ -1,7 +1,7 @@
 {
   "name": "fixly-vscode",
   "displayName": "Fixly",
-  "description": "Scan your project's npm dependencies for known vulnerabilities (OSV).",
+  "description": "Real-time remediation for npm dependencies — detects new vulnerabilities the moment they land, fixes package.json, installs, and verifies. Powered by OSV.",
   "version": "0.1.0",
   "private": true,
   "publisher": "fixly",
@@ -9,7 +9,7 @@
     "vscode": "^1.90.0"
   },
   "categories": ["Linters", "Other"],
-  "activationEvents": [],
+  "activationEvents": ["workspaceContains:package.json"],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -20,6 +20,10 @@
       {
         "command": "fixly.showReport",
         "title": "Fixly: Show Last Report"
+      },
+      {
+        "command": "fixly.fixEverything",
+        "title": "Fixly: Fix Everything & Verify"
       }
     ],
     "configuration": {
@@ -28,7 +32,18 @@
         "fixly.scanOnSave": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically rescan when package.json or package-lock.json is saved."
+          "description": "Automatically rescan when package.json or package-lock.json changes on disk (editor saves, terminal installs, AI-agent writes)."
+        },
+        "fixly.autoRemediate": {
+          "type": "boolean",
+          "default": true,
+          "description": "The remediation engine: when new vulnerabilities are detected, automatically rewrite package.json (undoable), run npm install, and verify with a re-scan. Turn off for a Fix & Verify prompt instead. Findings that already existed when the project was opened are never auto-fixed."
+        },
+        "fixly.advisoryIntervalMinutes": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "description": "Re-scan on an interval so newly published advisories surface (and are remediated) without any local file change. 0 disables. Takes effect on reload."
         },
         "fixly.includeTransitive": {
           "type": "boolean",

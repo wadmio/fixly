@@ -36,6 +36,56 @@ export function compareFindingKeys(previous: string[], next: string[]): ScanDelt
   };
 }
 
+/** Per-finding metadata that can change without the key changing. */
+export interface FindingSnapshotEntry {
+  knownExploited: boolean;
+}
+
+/** findingKey → metadata; what a real-time watcher remembers between scans. */
+export type FindingSnapshot = Record<string, FindingSnapshotEntry>;
+
+export function snapshotFindings(
+  vulnerabilities: Array<Pick<ScanVulnerability, "package" | "osvId" | "knownExploited">>
+): FindingSnapshot {
+  const snapshot: FindingSnapshot = {};
+  for (const v of vulnerabilities) {
+    snapshot[findingKey(v)] = { knownExploited: v.knownExploited };
+  }
+  return snapshot;
+}
+
+export interface FindingSnapshotDiff<V> {
+  /** Findings whose key was absent from the previous snapshot. */
+  added: V[];
+  /** Carried-over findings whose knownExploited flipped false → true —
+   *  same key, new urgency (a KEV catalog addition). */
+  escalated: V[];
+  /** Keys present before and gone now. */
+  resolvedKeys: string[];
+}
+
+/**
+ * Diff a scan's findings against a previous snapshot, distinguishing brand-new
+ * findings from KEV escalations of carried-over ones. Powers the real-time
+ * surfaces (CLI daemon, extension guardian).
+ */
+export function diffFindingSnapshot<
+  V extends Pick<ScanVulnerability, "package" | "osvId" | "knownExploited">,
+>(previous: FindingSnapshot, vulnerabilities: V[]): FindingSnapshotDiff<V> {
+  const added: V[] = [];
+  const escalated: V[] = [];
+  const currentKeys = new Set<string>();
+  for (const v of vulnerabilities) {
+    const key = findingKey(v);
+    currentKeys.add(key);
+    const before = previous[key];
+    if (!before) added.push(v);
+    else if (!before.knownExploited && v.knownExploited) escalated.push(v);
+  }
+  const resolvedKeys = Object.keys(previous).filter((k) => !currentKeys.has(k));
+  return { added, escalated, resolvedKeys };
+}
+
 /** Compact per-severity totals, suitable for storage and trend displays. */
 export type SeverityCounts = Record<Severity, number>;
 

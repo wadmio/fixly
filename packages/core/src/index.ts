@@ -56,8 +56,20 @@ export type {
 
 // Pure scan-diff helpers (also exported at @fixly/core/compare for client-safe
 // imports).
-export { findingKey, compareFindingKeys, countBySeverity } from "./compare";
-export type { ScanDelta, SeverityCounts } from "./compare";
+export {
+  findingKey,
+  compareFindingKeys,
+  countBySeverity,
+  snapshotFindings,
+  diffFindingSnapshot,
+} from "./compare";
+export type {
+  ScanDelta,
+  SeverityCounts,
+  FindingSnapshot,
+  FindingSnapshotEntry,
+  FindingSnapshotDiff,
+} from "./compare";
 
 export {
   compareSemver,

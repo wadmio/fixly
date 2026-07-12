@@ -2,8 +2,23 @@
 // any `vscode` import so it's unit-testable in a plain Node/vitest environment
 // (the vscode-dependent panel wiring lives in panel.ts).
 
-import { computeGrade, type Grade, type ScanGrade } from "@fixly/core";
+import {
+  buildRemediationPlan,
+  computeGrade,
+  type Grade,
+  type RemediationPlan,
+  type ScanGrade,
+} from "@fixly/core";
 import type { ScanResult, ScanVulnerability, Severity } from "@fixly/core";
+
+/** One line in the guardian's session activity feed (newest first). */
+export interface ActivityEvent {
+  /** HH:MM:SS */
+  at: string;
+  kind: "baseline" | "detected" | "escalation" | "remediated" | "failed" | "resolved";
+  text: string;
+  mttrMs?: number;
+}
 
 // Same grade palette as the web ScoreCard (emerald/cyan/yellow/orange/red 400s).
 const GRADE_COLORS: Record<Grade, string> = {
@@ -92,7 +107,39 @@ function rowHtml(v: ScanVulnerability): string {
   </tr>`;
 }
 
-function scoreHtml(grade: ScanGrade): string {
+const ACTIVITY_GLYPHS: Record<ActivityEvent["kind"], string> = {
+  baseline: "◎",
+  detected: "✖",
+  escalation: "‼",
+  remediated: "✔",
+  failed: "✖",
+  resolved: "−",
+};
+
+function activityHtml(activity: ActivityEvent[]): string {
+  if (activity.length === 0) return "";
+  const rows = activity
+    .map((e) => {
+      const mttr =
+        e.mttrMs !== undefined
+          ? ` <span class="mttr">MTTR ${(e.mttrMs / 1000).toFixed(1)}s</span>`
+          : "";
+      return `<li class="act act-${e.kind}"><span class="act-glyph">${ACTIVITY_GLYPHS[e.kind]}</span><span class="mono muted">${escapeHtml(e.at)}</span> ${escapeHtml(e.text)}${mttr}</li>`;
+    })
+    .join("");
+  return `<div class="feed">
+    <div class="feed-title">Guardian activity — this session</div>
+    <ul>${rows}</ul>
+  </div>`;
+}
+
+function forecastHtml(plan: RemediationPlan): string {
+  if (plan.actions.length === 0) return "";
+  const { before, after } = plan.forecast;
+  return `<div class="forecast">Fix everything → <span style="color:${GRADE_COLORS[after.grade]}">${after.grade} (${after.score}/100)</span> <span class="muted">from ${before.grade} (${before.score}/100) · ${plan.actions.length} action${plan.actions.length === 1 ? "" : "s"}</span></div>`;
+}
+
+function scoreHtml(grade: ScanGrade, plan: RemediationPlan): string {
   const color = GRADE_COLORS[grade.grade];
   const fixes =
     grade.topFixes.length > 0
@@ -108,19 +155,29 @@ function scoreHtml(grade: ScanGrade): string {
           </ul>
         </div>`
       : "";
-  return `<div class="score" style="border-color:${color}40">
-    <div class="score-letter" style="color:${color};border-color:${color}40">${grade.grade}</div>
+  return `<div class="score" style="border-color:${color}40;box-shadow:0 0 40px ${color}14">
+    <div class="score-letter" style="color:${color};border-color:${color}40;text-shadow:0 0 24px ${color}66">${grade.grade}</div>
     <div class="score-body">
       <div class="score-title">Fixly Score <span class="muted mono">${grade.score}/100</span></div>
       <div class="score-headline muted">${escapeHtml(grade.headline)}</div>
+      ${forecastHtml(plan)}
       ${fixes}
     </div>
   </div>`;
 }
 
-export function renderHtml(result: ScanResult, nonce: string): string {
+export function renderHtml(
+  result: ScanResult,
+  nonce: string,
+  activity: ActivityEvent[] = []
+): string {
   const counts = severityCounts(result);
   const grade = computeGrade(result);
+  const plan = buildRemediationPlan(result);
+  const fixAllButton =
+    plan.actions.length > 0
+      ? `<button id="fixall" class="primary">⚡ Fix Everything &amp; Verify → ${plan.forecast.after.grade} (${plan.forecast.after.score})</button>`
+      : "";
 
   const warningsHtml =
     result.warnings.length > 0 || result.error
@@ -161,6 +218,18 @@ export function renderHtml(result: ScanResult, nonce: string): string {
   .actions { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
   button { background: #fff; color: #0A0A0A; border: 0; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
   button.secondary { background: #1A1A1A; color: #fff; border: 1px solid rgba(209,213,219,0.2); }
+  button.primary { background: #34d399; color: #052e1b; }
+  .forecast { font-size: 12px; margin-top: 6px; font-weight: 600; }
+  .feed { background: #111; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 12px 14px; margin: 16px 0; }
+  .feed-title { font-size: 11px; font-weight: 600; color: #BFC3C7; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .feed ul { margin: 0; padding: 0; list-style: none; }
+  .act { font-size: 12px; margin: 5px 0; color: #e5e7eb; }
+  .act-glyph { display: inline-block; width: 16px; }
+  .act-remediated .act-glyph { color: #34d399; }
+  .act-detected .act-glyph, .act-failed .act-glyph, .act-escalation .act-glyph { color: #f87171; }
+  .act-resolved .act-glyph { color: #34d399; }
+  .act-baseline .act-glyph { color: #BFC3C7; }
+  .mttr { background: #052e1b; color: #34d399; border-radius: 999px; padding: 1px 8px; font-size: 10px; font-weight: 700; margin-left: 4px; }
   .cards { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin: 16px 0; }
   .card { background: #1A1A1A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 12px; }
   .card-value { font-size: 20px; font-weight: 600; }
@@ -202,12 +271,15 @@ export function renderHtml(result: ScanResult, nonce: string): string {
   ${result.target.filesFound.length ? `<div class="sub">files: ${escapeHtml(result.target.filesFound.join(", "))}${result.target.filesMissing.length ? ` · missing: ${escapeHtml(result.target.filesMissing.join(", "))}` : ""}</div>` : ""}
 
   <div class="actions">
-    <button id="rescan">Rescan Project</button>
+    ${fixAllButton}
+    <button id="rescan" class="${plan.actions.length > 0 ? "secondary" : ""}">Rescan Project</button>
     <button id="copy" class="secondary">Copy Summary</button>
     <button id="export" class="secondary">Export JSON Report</button>
   </div>
 
-  ${scoreHtml(grade)}
+  ${scoreHtml(grade, plan)}
+
+  ${activityHtml(activity)}
 
   <div class="cards">
     ${cardHtml("Packages", result.totalPackages)}
@@ -220,6 +292,8 @@ export function renderHtml(result: ScanResult, nonce: string): string {
 
   <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();
+    const fixAll = document.getElementById("fixall");
+    if (fixAll) fixAll.addEventListener("click", () => vscodeApi.postMessage({ type: "fixAll" }));
     document.getElementById("rescan").addEventListener("click", () => vscodeApi.postMessage({ type: "rescan" }));
     document.getElementById("copy").addEventListener("click", () => vscodeApi.postMessage({ type: "copySummary" }));
     document.getElementById("export").addEventListener("click", () => vscodeApi.postMessage({ type: "exportJson" }));
