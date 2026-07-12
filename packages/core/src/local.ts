@@ -19,6 +19,9 @@ async function readJsonFile(path: string): Promise<unknown | null> {
 
 export interface LocalScanOptions {
   includeTransitive?: boolean;
+  /** Cross-reference CVEs against NVD (default true). Long-running callers
+   *  (the daemon) disable this per cycle — NVD annotates, never detects. */
+  nvd?: boolean;
 }
 
 /**
@@ -43,6 +46,7 @@ export async function scanLocalProject(
     packageJson,
     packageLock,
     includeTransitive: options.includeTransitive,
+    nvd: options.nvd,
     repo: basename(root),
     target: {
       owner: null,

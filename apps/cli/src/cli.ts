@@ -15,6 +15,7 @@ import { check } from "./commands/check";
 import { guard } from "./commands/guard";
 import { fix } from "./commands/fix";
 import { watch } from "./commands/watch";
+import { daemon } from "./commands/daemon";
 import { bold, dim, red } from "./ui";
 
 const VERSION = "0.1.0";
@@ -29,6 +30,7 @@ const HELP = `
     fixly guard -- npm install <pkg>  verdict-check named packages, then install
     fixly fix [dir]                   remediation plan + Grade Forecast; --write applies it
     fixly watch [dir]                 live re-scan on package.json/lock changes
+    fixly daemon [dir ...]            real-time remediation: detect → fix → verify, unattended
 
   ${bold("Options")}
     --json                machine-readable output (all commands)
@@ -40,6 +42,11 @@ const HELP = `
     --write               apply the remediation plan to package.json (fix)
     --yes                 auto-accept caution verdicts (guard, CI)
     --force               override BLOCK verdicts (guard; you own the risk)
+    --interval <min>      daemon advisory re-scan cadence (default 10, min 1)
+    --notify-only         daemon: detect + alert, never touch files
+    --no-install          daemon: fix package.json but skip npm install
+    --webhook <url>       daemon: POST a JSON event on findings/remediations
+    --no-desktop          daemon: suppress OS desktop notifications
     -v, --version         print version
     -h, --help            this help
 
@@ -53,6 +60,7 @@ const HELP = `
     fixly scan https://github.com/OWASP/NodeGoat --fail-on high
     fixly scan --sarif > fixly.sarif
     fixly fix --write && npm install
+    fixly daemon ~/dev/my-api --webhook https://hooks.example.com/fixly
 `;
 
 /**
@@ -99,6 +107,11 @@ async function main(): Promise<number> {
       transitive: { type: "boolean", default: true },
       "no-transitive": { type: "boolean", default: false },
       write: { type: "boolean", default: false },
+      interval: { type: "string" },
+      "notify-only": { type: "boolean", default: false },
+      "no-install": { type: "boolean", default: false },
+      webhook: { type: "string" },
+      "no-desktop": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
       version: { type: "boolean", short: "v", default: false },
     },
@@ -156,6 +169,26 @@ async function main(): Promise<number> {
 
     case "watch":
       return watch({ dir: rest[0] ?? "." });
+
+    case "daemon": {
+      let intervalMinutes = 10;
+      if (values.interval !== undefined) {
+        intervalMinutes = Number(values.interval);
+        if (!Number.isFinite(intervalMinutes) || intervalMinutes < 1) {
+          process.stderr.write(`${red("✖")} --interval must be a number of minutes >= 1\n`);
+          return 2;
+        }
+      }
+      return daemon({
+        dirs: rest.length > 0 ? rest : ["."],
+        intervalMinutes,
+        notifyOnly: values["notify-only"],
+        noInstall: values["no-install"],
+        webhook: values.webhook ?? null,
+        desktop: !values["no-desktop"],
+        json: values.json,
+      });
+    }
 
     case "check": {
       if (!rest[0]) {
