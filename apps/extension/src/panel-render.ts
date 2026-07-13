@@ -29,7 +29,26 @@ const GRADE_COLORS: Record<Grade, string> = {
   F: "#f87171",
 };
 
+const SEVERITY_COLORS: Record<Severity, string> = {
+  critical: "#f87171",
+  high: "#fb923c",
+  medium: "#facc15",
+  low: "#60a5fa",
+  unknown: "#9ca3af",
+};
+
 const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "unknown"];
+
+// The Fixly mark: a shield with a lightning bolt — detection with teeth.
+const LOGO_SVG = `<svg class="logo" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="fxg" x1="0" y1="0" x2="24" y2="24">
+      <stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+  <path d="M12 2 4 5.4v5.4c0 5 3.4 8.8 8 10.2 4.6-1.4 8-5.2 8-10.2V5.4L12 2Z" stroke="url(#fxg)" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M13.1 6.8 8.9 12.6h2.6l-1 4.6 4.6-6.2h-2.7l0.7-4.2Z" fill="url(#fxg)"/>
+</svg>`;
 
 function severityCounts(result: ScanResult): Record<Severity, number> {
   const counts: Record<Severity, number> = {
@@ -75,8 +94,19 @@ export function buildSummaryText(result: ScanResult): string {
   return lines.join("\n");
 }
 
-function cardHtml(label: string, value: number, cls = ""): string {
-  return `<div class="card ${cls}"><div class="card-value">${value}</div><div class="card-label">${escapeHtml(label)}</div></div>`;
+function cardHtml(label: string, value: number, accent: string): string {
+  return `<div class="card" style="--accent:${accent}"><div class="card-value">${value}</div><div class="card-label">${escapeHtml(label)}</div></div>`;
+}
+
+function intelChips(v: ScanVulnerability): string {
+  const chips: string[] = [];
+  if (v.malicious) chips.push(`<span class="ichip mal" title="Known malicious package (OSV MAL record)">☠ MALICIOUS</span>`);
+  if (v.knownExploited) chips.push(`<span class="ichip kev" title="In CISA's Known Exploited Vulnerabilities catalog — confirmed exploitation in the wild">⚡ exploited in the wild</span>`);
+  if (v.pocCount !== null && v.pocCount > 0)
+    chips.push(`<span class="ichip poc" title="Public proof-of-concept exploit repos on GitHub">PoC ×${v.pocCount}</span>`);
+  if (v.epssScore !== null && v.epssScore >= 0.1)
+    chips.push(`<span class="ichip epss" title="EPSS: probability of exploitation in the next 30 days">EPSS ${(v.epssScore * 100).toFixed(0)}%</span>`);
+  return chips.length > 0 ? `<div class="ichips">${chips.join("")}</div>` : "";
 }
 
 function rowHtml(v: ScanVulnerability): string {
@@ -100,7 +130,7 @@ function rowHtml(v: ScanVulnerability): string {
     <td><div class="pkg">${escapeHtml(v.package)}${typeChip}</div><div class="muted mono">v${escapeHtml(v.installedVersion)}</div></td>
     <td class="mono">${idCell}<div class="muted" style="font-size:10px">${sources}</div></td>
     <td class="mono muted">${v.cveId ? escapeHtml(v.cveId) : "—"}</td>
-    <td><span class="badge sev-${v.severity}">${escapeHtml(v.severity)}</span></td>
+    <td><span class="badge sev-${v.severity}">${escapeHtml(v.severity)}</span>${intelChips(v)}</td>
     <td class="mono">${cvss}${nvd}</td>
     <td class="summary">${escapeHtml(v.title)}</td>
     <td class="mono">${fix}</td>
@@ -119,28 +149,31 @@ const ACTIVITY_GLYPHS: Record<ActivityEvent["kind"], string> = {
 function activityHtml(activity: ActivityEvent[]): string {
   if (activity.length === 0) return "";
   const rows = activity
-    .map((e) => {
+    .map((e, i) => {
       const mttr =
         e.mttrMs !== undefined
-          ? ` <span class="mttr">MTTR ${(e.mttrMs / 1000).toFixed(1)}s</span>`
+          ? ` <span class="mttr">⚡ MTTR ${(e.mttrMs / 1000).toFixed(1)}s</span>`
           : "";
-      return `<li class="act act-${e.kind}"><span class="act-glyph">${ACTIVITY_GLYPHS[e.kind]}</span><span class="mono muted">${escapeHtml(e.at)}</span> ${escapeHtml(e.text)}${mttr}</li>`;
+      return `<li class="act act-${e.kind}" style="animation-delay:${Math.min(i * 60, 400)}ms"><span class="act-dot"></span><span class="act-glyph">${ACTIVITY_GLYPHS[e.kind]}</span><span class="mono act-time">${escapeHtml(e.at)}</span><span class="act-text">${escapeHtml(e.text)}${mttr}</span></li>`;
     })
     .join("");
-  return `<div class="feed">
-    <div class="feed-title">Guardian activity — this session</div>
-    <ul>${rows}</ul>
+  return `<div class="feed rise" style="animation-delay:120ms">
+    <div class="section-title">Guardian activity <span class="muted">— this session, newest first</span></div>
+    <ul class="timeline">${rows}</ul>
   </div>`;
 }
 
 function forecastHtml(plan: RemediationPlan): string {
   if (plan.actions.length === 0) return "";
   const { before, after } = plan.forecast;
-  return `<div class="forecast">Fix everything → <span style="color:${GRADE_COLORS[after.grade]}">${after.grade} (${after.score}/100)</span> <span class="muted">from ${before.grade} (${before.score}/100) · ${plan.actions.length} action${plan.actions.length === 1 ? "" : "s"}</span></div>`;
+  return `<div class="forecast">Fix everything → <span class="forecast-grade" style="color:${GRADE_COLORS[after.grade]}">${after.grade} (${after.score}/100)</span> <span class="muted">from ${before.grade} (${before.score}/100) · ${plan.actions.length} action${plan.actions.length === 1 ? "" : "s"}</span></div>`;
 }
 
 function scoreHtml(grade: ScanGrade, plan: RemediationPlan): string {
   const color = GRADE_COLORS[grade.grade];
+  // SVG progress ring: r=46 → circumference ≈ 289.
+  const C = 289;
+  const dash = Math.max(0, Math.min(100, grade.score)) * (C / 100);
   const fixes =
     grade.topFixes.length > 0
       ? `<div class="fixes">
@@ -155,10 +188,17 @@ function scoreHtml(grade: ScanGrade, plan: RemediationPlan): string {
           </ul>
         </div>`
       : "";
-  return `<div class="score" style="border-color:${color}40;box-shadow:0 0 40px ${color}14">
-    <div class="score-letter" style="color:${color};border-color:${color}40;text-shadow:0 0 24px ${color}66">${grade.grade}</div>
+  return `<div class="score rise" style="--grade:${color}">
+    <div class="ring-wrap">
+      <svg class="ring" viewBox="0 0 110 110">
+        <circle cx="55" cy="55" r="46" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="7"/>
+        <circle class="ring-fill" cx="55" cy="55" r="46" fill="none" stroke="${color}" stroke-width="7"
+          stroke-linecap="round" stroke-dasharray="${dash} ${C}" transform="rotate(-90 55 55)"/>
+      </svg>
+      <div class="score-letter" style="color:${color};text-shadow:0 0 32px ${color}88">${grade.grade}</div>
+    </div>
     <div class="score-body">
-      <div class="score-title">Fixly Score <span class="muted mono">${grade.score}/100</span></div>
+      <div class="score-title">Fixly Score <span class="score-num mono" style="color:${color}">${grade.score}<span class="muted">/100</span></span></div>
       <div class="score-headline muted">${escapeHtml(grade.headline)}</div>
       ${forecastHtml(plan)}
       ${fixes}
@@ -181,7 +221,7 @@ export function renderHtml(
 
   const warningsHtml =
     result.warnings.length > 0 || result.error
-      ? `<div class="warnings">
+      ? `<div class="warnings rise">
           <div class="warnings-title">Warnings</div>
           <ul>
             ${result.error ? `<li class="err">${escapeHtml(result.error.message)}</li>` : ""}
@@ -192,7 +232,7 @@ export function renderHtml(
 
   const tableHtml =
     result.vulnerabilities.length > 0
-      ? `<table>
+      ? `<table class="rise" style="animation-delay:180ms">
           <thead>
             <tr>
               <th>Package</th><th>ID</th><th>CVE</th><th>Severity</th><th>CVSS</th><th>Summary</th><th>Fix</th>
@@ -200,7 +240,7 @@ export function renderHtml(
           </thead>
           <tbody>${result.vulnerabilities.map(rowHtml).join("")}</tbody>
         </table>`
-      : `<div class="clean">No vulnerabilities found across ${result.totalPackages} packages.</div>`;
+      : `<div class="clean rise" style="animation-delay:180ms"><div class="clean-mark">✔</div>No vulnerabilities found across ${result.totalPackages} packages.<div class="muted" style="margin-top:4px">The guardian is watching — new advisories and dependency changes are remediated automatically.</div></div>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -210,85 +250,156 @@ export function renderHtml(
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <style>
   :root { color-scheme: dark; }
-  body { font-family: var(--vscode-font-family, system-ui); background: #0A0A0A; color: #fff; margin: 0; padding: 20px; font-size: 13px; }
-  h1 { font-size: 16px; margin: 0; }
-  .muted { color: #BFC3C7; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: var(--vscode-font-family, system-ui);
+    background:
+      radial-gradient(1200px 500px at 80% -10%, rgba(52,211,153,0.07), transparent 60%),
+      radial-gradient(900px 400px at -10% 0%, rgba(34,211,238,0.06), transparent 55%),
+      #0A0A0A;
+    color: #fff; margin: 0; padding: 24px; font-size: 13px;
+  }
+  .muted { color: #9aa0a6; }
   .mono { font-family: var(--vscode-editor-font-family, ui-monospace, monospace); }
-  .sub { color: #BFC3C7; font-size: 12px; margin-top: 4px; }
-  .actions { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
-  button { background: #fff; color: #0A0A0A; border: 0; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
-  button.secondary { background: #1A1A1A; color: #fff; border: 1px solid rgba(209,213,219,0.2); }
-  button.primary { background: #34d399; color: #052e1b; }
-  .forecast { font-size: 12px; margin-top: 6px; font-weight: 600; }
-  .feed { background: #111; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 12px 14px; margin: 16px 0; }
-  .feed-title { font-size: 11px; font-weight: 600; color: #BFC3C7; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
-  .feed ul { margin: 0; padding: 0; list-style: none; }
-  .act { font-size: 12px; margin: 5px 0; color: #e5e7eb; }
-  .act-glyph { display: inline-block; width: 16px; }
-  .act-remediated .act-glyph { color: #34d399; }
-  .act-detected .act-glyph, .act-failed .act-glyph, .act-escalation .act-glyph { color: #f87171; }
-  .act-resolved .act-glyph { color: #34d399; }
-  .act-baseline .act-glyph { color: #BFC3C7; }
-  .mttr { background: #052e1b; color: #34d399; border-radius: 999px; padding: 1px 8px; font-size: 10px; font-weight: 700; margin-left: 4px; }
-  .cards { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin: 16px 0; }
-  .card { background: #1A1A1A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 12px; }
-  .card-value { font-size: 20px; font-weight: 600; }
-  .card-label { font-size: 11px; color: #BFC3C7; margin-top: 2px; }
-  .score { display: flex; gap: 16px; background: #1A1A1A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 16px; margin: 16px 0; }
-  .score-letter { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; flex-shrink: 0; background: #0A0A0A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; font-size: 32px; font-weight: 700; }
-  .score-title { font-weight: 600; }
-  .score-headline { font-size: 12px; margin-top: 2px; }
-  .fixes { margin-top: 10px; }
-  .fixes-title { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+
+  @keyframes riseIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .rise { animation: riseIn 420ms cubic-bezier(0.22,1,0.36,1) both; }
+
+  /* ---- brand header ---- */
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .logo { width: 28px; height: 28px; filter: drop-shadow(0 0 10px rgba(52,211,153,0.45)); }
+  .wordmark { font-size: 20px; font-weight: 800; letter-spacing: -0.02em;
+    background: linear-gradient(90deg, #34d399, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .tagline { font-size: 11px; color: #9aa0a6; border: 1px solid rgba(255,255,255,0.1); border-radius: 999px; padding: 2px 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .repo-line { margin-left: auto; text-align: right; }
+  .repo-name { font-weight: 700; font-size: 14px; }
+  .sub { color: #9aa0a6; font-size: 11.5px; margin-top: 2px; }
+
+  /* ---- actions ---- */
+  .actions { display: flex; gap: 8px; margin: 18px 0; flex-wrap: wrap; }
+  button { background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease; }
+  button:hover { transform: translateY(-1px); background: rgba(255,255,255,0.1); }
+  button.primary { background: linear-gradient(90deg, #34d399, #22d3ee); color: #04150d; border: 0; box-shadow: 0 4px 24px rgba(52,211,153,0.35); }
+  button.primary:hover { box-shadow: 0 6px 32px rgba(52,211,153,0.5); }
+  button.secondary { background: rgba(255,255,255,0.04); }
+
+  /* ---- score hero ---- */
+  .score { display: flex; gap: 22px; align-items: center;
+    background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015));
+    border: 1px solid color-mix(in srgb, var(--grade) 28%, transparent);
+    box-shadow: 0 0 60px color-mix(in srgb, var(--grade) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.06);
+    border-radius: 16px; padding: 20px 24px; margin: 16px 0; }
+  .ring-wrap { position: relative; width: 110px; height: 110px; flex-shrink: 0; }
+  .ring { width: 110px; height: 110px; }
+  @keyframes ringIn { from { stroke-dasharray: 0 289; } }
+  .ring-fill { animation: ringIn 900ms cubic-bezier(0.22,1,0.36,1) both; filter: drop-shadow(0 0 6px currentColor); }
+  @keyframes pop { 0% { transform: translate(-50%,-50%) scale(0.6); opacity: 0; } 60% { transform: translate(-50%,-50%) scale(1.12); } 100% { transform: translate(-50%,-50%) scale(1); opacity: 1; } }
+  .score-letter { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    font-size: 46px; font-weight: 800; letter-spacing: -0.03em; animation: pop 600ms 250ms cubic-bezier(0.22,1,0.36,1) both; }
+  .score-title { font-weight: 700; font-size: 14px; display: flex; align-items: baseline; gap: 8px; }
+  .score-num { font-size: 22px; font-weight: 800; }
+  .score-headline { font-size: 12.5px; margin-top: 3px; }
+  .forecast { font-size: 12.5px; margin-top: 10px; font-weight: 600; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 999px; padding: 5px 12px; width: fit-content; }
+  .forecast-grade { font-weight: 800; }
+  .fixes { margin-top: 12px; }
+  .fixes-title { font-size: 10.5px; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.08em; text-transform: uppercase; color: #9aa0a6; }
   .fixes ul { margin: 0; padding-left: 16px; }
-  .fixes li { font-size: 12px; margin: 4px 0; }
-  .cmd { color: #34d399; background: #0A0A0A; border-radius: 4px; padding: 2px 6px; margin-top: 2px; width: fit-content; font-size: 11px; }
-  .warnings { background: rgba(120,90,0,0.12); border: 1px solid rgba(180,140,0,0.4); border-radius: 10px; padding: 12px 14px; margin: 16px 0; }
-  .warnings-title { font-size: 11px; font-weight: 600; color: #f4c150; margin-bottom: 6px; }
+  .fixes li { font-size: 12px; margin: 5px 0; }
+  .cmd { color: #34d399; background: rgba(52,211,153,0.08); border: 1px solid rgba(52,211,153,0.2); border-radius: 6px; padding: 2px 8px; margin-top: 3px; width: fit-content; font-size: 11px; }
+
+  /* ---- stat cards ---- */
+  .cards { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin: 16px 0; }
+  .card { position: relative; overflow: hidden; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px 12px 10px; }
+  .card::before { content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 2px; background: var(--accent, rgba(255,255,255,0.15)); opacity: 0.85; }
+  .card-value { font-size: 22px; font-weight: 800; }
+  .card-label { font-size: 10.5px; color: #9aa0a6; margin-top: 2px; text-transform: capitalize; }
+
+  /* ---- guardian feed (timeline) ---- */
+  .feed { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px 18px; margin: 16px 0; }
+  .section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #cbd0d6; margin-bottom: 10px; }
+  .timeline { margin: 0; padding: 0 0 0 6px; list-style: none; position: relative; }
+  .timeline::before { content: ""; position: absolute; left: 9px; top: 6px; bottom: 6px; width: 1px; background: linear-gradient(180deg, rgba(52,211,153,0.5), rgba(255,255,255,0.06)); }
+  .act { position: relative; display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; margin: 8px 0; padding-left: 18px; animation: riseIn 360ms cubic-bezier(0.22,1,0.36,1) both; }
+  .act-dot { position: absolute; left: 0; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: #9aa0a6; box-shadow: 0 0 0 3px rgba(255,255,255,0.05); }
+  .act-remediated .act-dot, .act-resolved .act-dot { background: #34d399; box-shadow: 0 0 10px rgba(52,211,153,0.7); }
+  .act-detected .act-dot, .act-failed .act-dot, .act-escalation .act-dot { background: #f87171; box-shadow: 0 0 10px rgba(248,113,113,0.6); }
+  .act-glyph { width: 14px; text-align: center; }
+  .act-remediated .act-glyph, .act-resolved .act-glyph { color: #34d399; }
+  .act-detected .act-glyph, .act-failed .act-glyph, .act-escalation .act-glyph { color: #f87171; }
+  .act-time { color: #6b7280; font-size: 11px; }
+  .act-text { color: #e5e7eb; }
+  .mttr { background: linear-gradient(90deg, rgba(52,211,153,0.18), rgba(34,211,238,0.14)); color: #34d399; border: 1px solid rgba(52,211,153,0.35); border-radius: 999px; padding: 1px 9px; font-size: 10.5px; font-weight: 800; margin-left: 6px; white-space: nowrap; }
+
+  /* ---- warnings ---- */
+  .warnings { background: rgba(120,90,0,0.1); border: 1px solid rgba(180,140,0,0.35); border-radius: 12px; padding: 12px 14px; margin: 16px 0; }
+  .warnings-title { font-size: 10.5px; font-weight: 700; color: #f4c150; margin-bottom: 6px; letter-spacing: 0.08em; text-transform: uppercase; }
   .warnings ul { margin: 0; padding-left: 16px; }
   .warnings li { font-size: 12px; color: #e7d6a8; margin: 2px 0; }
   .warnings li.err { color: #f87171; }
-  table { width: 100%; border-collapse: collapse; background: #1A1A1A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; overflow: hidden; }
-  th { text-align: left; font-size: 11px; color: #BFC3C7; padding: 10px 12px; border-bottom: 1px solid rgba(209,213,219,0.1); }
-  td { padding: 10px 12px; border-top: 1px solid rgba(209,213,219,0.08); vertical-align: top; }
-  .pkg { font-weight: 600; }
-  .summary { max-width: 360px; color: #BFC3C7; }
-  .fix { color: #34d399; }
-  a { color: #BFC3C7; }
-  .clean { background: #1A1A1A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 28px; text-align: center; color: #BFC3C7; }
-  .chip { display: inline-block; border: 1px solid rgba(209,213,219,0.25); border-radius: 4px; padding: 0 4px; font-size: 10px; font-weight: 400; color: #BFC3C7; vertical-align: middle; }
-  .badge { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600; text-transform: capitalize; }
-  .sev-critical { background: #450a0a; color: #f87171; }
-  .sev-high { background: #431407; color: #fb923c; }
-  .sev-medium { background: #422006; color: #facc15; }
-  .sev-low { background: #172554; color: #60a5fa; }
-  .sev-unknown { background: #1A1A1A; color: #BFC3C7; border: 1px solid rgba(209,213,219,0.2); }
+
+  /* ---- findings table ---- */
+  table { width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; overflow: hidden; }
+  th { text-align: left; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #9aa0a6; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); }
+  td { padding: 10px 12px; border-top: 1px solid rgba(255,255,255,0.05); vertical-align: top; }
+  tbody tr { transition: background 120ms ease; }
+  tbody tr:hover { background: rgba(255,255,255,0.035); }
+  .pkg { font-weight: 700; }
+  .summary { max-width: 360px; color: #b9bec5; }
+  .fix { color: #34d399; font-weight: 600; }
+  a { color: #8ab4f8; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .clean { background: rgba(52,211,153,0.05); border: 1px solid rgba(52,211,153,0.25); border-radius: 14px; padding: 30px; text-align: center; color: #c7cdd3; }
+  .clean-mark { font-size: 26px; color: #34d399; margin-bottom: 6px; text-shadow: 0 0 18px rgba(52,211,153,0.7); }
+  .chip { display: inline-block; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 0 4px; font-size: 10px; font-weight: 400; color: #9aa0a6; vertical-align: middle; }
+  .badge { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 700; text-transform: capitalize; }
+  .sev-critical { background: rgba(248,113,113,0.14); color: #f87171; border: 1px solid rgba(248,113,113,0.35); }
+  .sev-high { background: rgba(251,146,60,0.12); color: #fb923c; border: 1px solid rgba(251,146,60,0.3); }
+  .sev-medium { background: rgba(250,204,21,0.1); color: #facc15; border: 1px solid rgba(250,204,21,0.25); }
+  .sev-low { background: rgba(96,165,250,0.1); color: #60a5fa; border: 1px solid rgba(96,165,250,0.25); }
+  .sev-unknown { background: rgba(255,255,255,0.05); color: #9aa0a6; border: 1px solid rgba(255,255,255,0.15); }
+  .ichips { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .ichip { border-radius: 999px; padding: 0 7px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+  .ichip.kev { background: rgba(248,113,113,0.14); color: #f87171; border: 1px solid rgba(248,113,113,0.4); }
+  .ichip.mal { background: #450a0a; color: #fecaca; border: 1px solid #f87171; }
+  .ichip.poc { background: rgba(251,146,60,0.12); color: #fb923c; border: 1px solid rgba(251,146,60,0.35); }
+  .ichip.epss { background: rgba(250,204,21,0.1); color: #facc15; border: 1px solid rgba(250,204,21,0.3); }
+
+  .footer { margin-top: 22px; text-align: center; font-size: 11px; color: #6b7280; }
+  .footer b { background: linear-gradient(90deg, #34d399, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
 </style>
 </head>
 <body>
-  <h1>${escapeHtml(result.repo)}</h1>
-  <div class="sub">${result.totalPackages} packages${result.transitivePackages > 0 ? ` (${result.directPackages} direct + ${result.transitivePackages} transitive)` : ""} · ${result.resolvedPackages} checked${result.target.branch ? ` · branch ${escapeHtml(result.target.branch)}` : ""} · ${escapeHtml(result.scannedAt)} · ${result.source === "osv+nvd" ? "OSV + NVD" : "OSV"}</div>
-  ${result.target.filesFound.length ? `<div class="sub">files: ${escapeHtml(result.target.filesFound.join(", "))}${result.target.filesMissing.length ? ` · missing: ${escapeHtml(result.target.filesMissing.join(", "))}` : ""}</div>` : ""}
+  <div class="brand rise">
+    ${LOGO_SVG}
+    <span class="wordmark">fixly</span>
+    <span class="tagline">real-time remediation</span>
+    <div class="repo-line">
+      <div class="repo-name">${escapeHtml(result.repo)}</div>
+      <div class="sub">${result.totalPackages} packages${result.transitivePackages > 0 ? ` (${result.directPackages} direct + ${result.transitivePackages} transitive)` : ""} · ${result.resolvedPackages} checked · ${result.source === "osv+nvd" ? "OSV + NVD" : "OSV"}</div>
+    </div>
+  </div>
 
-  <div class="actions">
+  <div class="actions rise" style="animation-delay:60ms">
     ${fixAllButton}
-    <button id="rescan" class="${plan.actions.length > 0 ? "secondary" : ""}">Rescan Project</button>
+    <button id="rescan" class="secondary">Rescan</button>
     <button id="copy" class="secondary">Copy Summary</button>
-    <button id="export" class="secondary">Export JSON Report</button>
+    <button id="export" class="secondary">Export JSON</button>
   </div>
 
   ${scoreHtml(grade, plan)}
 
   ${activityHtml(activity)}
 
-  <div class="cards">
-    ${cardHtml("Packages", result.totalPackages)}
-    ${cardHtml("Vulnerabilities", result.vulnerabilities.length)}
-    ${SEVERITIES.map((s) => cardHtml(s, counts[s])).join("")}
+  <div class="cards rise" style="animation-delay:140ms">
+    ${cardHtml("Packages", result.totalPackages, "rgba(255,255,255,0.25)")}
+    ${cardHtml("Vulnerabilities", result.vulnerabilities.length, result.vulnerabilities.length > 0 ? "#f87171" : "#34d399")}
+    ${SEVERITIES.map((s) => cardHtml(s, counts[s], SEVERITY_COLORS[s])).join("")}
   </div>
 
   ${warningsHtml}
   ${tableHtml}
+
+  <div class="footer">guarded by <b>fixly</b> — detect · remediate · verify</div>
 
   <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();

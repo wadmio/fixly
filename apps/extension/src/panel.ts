@@ -14,6 +14,8 @@ function makeNonce(): string {
 /** Singleton webview panel that renders a scan report and relays actions. */
 export class FixlyPanel {
   private static current: FixlyPanel | undefined;
+  /** Set once in activate() so the panel tab can show the Fixly mark. */
+  static extensionUri: vscode.Uri | undefined;
 
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
@@ -34,6 +36,9 @@ export class FixlyPanel {
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true }
     );
+    if (FixlyPanel.extensionUri) {
+      panel.iconPath = vscode.Uri.joinPath(FixlyPanel.extensionUri, "media", "fixly.svg");
+    }
     FixlyPanel.current = new FixlyPanel(panel, result, onRescan, activity);
   }
 

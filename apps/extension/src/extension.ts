@@ -55,6 +55,7 @@ function config(): vscode.WorkspaceConfiguration {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  FixlyPanel.extensionUri = context.extensionUri;
   output = vscode.window.createOutputChannel("Fixly");
   context.subscriptions.push(output);
 
