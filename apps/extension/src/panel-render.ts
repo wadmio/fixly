@@ -93,9 +93,42 @@ export function buildSummaryText(result: ScanResult): string {
   return lines.join("\n");
 }
 
-function cardHtml(label: string, value: number, dot?: string): string {
-  const marker = dot ? `<span class="dot" style="background:${dot}"></span>` : "";
-  return `<div class="card"><div class="card-value">${value}</div><div class="card-label">${marker}${escapeHtml(label)}</div></div>`;
+/** Packages / findings stats + a severity distribution bar with legend. */
+function overviewHtml(result: ScanResult, counts: Record<Severity, number>): string {
+  const total = result.vulnerabilities.length;
+  const segments = SEVERITIES.filter((s) => counts[s] > 0)
+    .map(
+      (s) =>
+        `<span class="seg" style="flex:${counts[s]};background:${SEVERITY_COLORS[s]}" title="${counts[s]} ${s}"></span>`
+    )
+    .join("");
+  const bar =
+    total > 0
+      ? `<div class="sevbar">${segments}</div>`
+      : `<div class="sevbar"><span class="seg" style="flex:1;background:rgba(52,211,153,0.4)"></span></div>`;
+  const legend = SEVERITIES.filter((s) => counts[s] > 0)
+    .map(
+      (s) =>
+        `<span class="legend-item"><span class="dot" style="background:${SEVERITY_COLORS[s]}"></span>${counts[s]} ${s}</span>`
+    )
+    .join("");
+  return `<section class="panel overview">
+    <div class="stat">
+      <div class="stat-value">${result.totalPackages}</div>
+      <div class="stat-label">Packages</div>
+      <div class="muted small">${result.directPackages} direct · ${result.transitivePackages} transitive</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" style="${total > 0 ? "color:#f87171" : "color:#34d399"}">${total}</div>
+      <div class="stat-label">Findings</div>
+      <div class="muted small">${result.resolvedPackages} packages checked</div>
+    </div>
+    <div class="stat dist">
+      <div class="stat-label" style="margin-bottom:8px">Severity distribution</div>
+      ${bar}
+      <div class="legend">${legend || `<span class="legend-item muted">no findings</span>`}</div>
+    </div>
+  </section>`;
 }
 
 function intelTags(v: ScanVulnerability): string {
@@ -172,8 +205,8 @@ function forecastHtml(plan: RemediationPlan): string {
 
 function scoreHtml(grade: ScanGrade, plan: RemediationPlan): string {
   const color = GRADE_COLORS[grade.grade];
-  // Static SVG progress ring: r=30 → circumference ≈ 188.5.
-  const C = 188.5;
+  // Static SVG progress ring: r=36 → circumference ≈ 226.2.
+  const C = 226.2;
   const dash = (Math.max(0, Math.min(100, grade.score)) / 100) * C;
   const fixes =
     grade.topFixes.length > 0
@@ -191,10 +224,10 @@ function scoreHtml(grade: ScanGrade, plan: RemediationPlan): string {
       : "";
   return `<section class="panel score">
     <div class="ring-wrap">
-      <svg class="ring" viewBox="0 0 72 72">
-        <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4"/>
-        <circle cx="36" cy="36" r="30" fill="none" stroke="${color}" stroke-width="4"
-          stroke-linecap="round" stroke-dasharray="${dash} ${C}" transform="rotate(-90 36 36)"/>
+      <svg class="ring" viewBox="0 0 84 84">
+        <circle cx="42" cy="42" r="36" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4"/>
+        <circle cx="42" cy="42" r="36" fill="none" stroke="${color}" stroke-width="4"
+          stroke-linecap="round" stroke-dasharray="${dash} ${C}" transform="rotate(-90 42 42)"/>
       </svg>
       <div class="score-letter" style="color:${color}">${grade.grade}</div>
     </div>
@@ -254,48 +287,53 @@ export function renderHtml(
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  body { font-family: var(--vscode-font-family, system-ui); background: #0A0A0A; color: #E6E6E6; margin: 0; padding: 24px; font-size: 13px; line-height: 1.45; }
+  body { font-family: var(--vscode-font-family, system-ui); background: #0A0A0A; color: #E6E6E6; margin: 0; padding: 28px 32px 36px; font-size: 13px; line-height: 1.5; }
+  .container { max-width: 940px; margin: 0 auto; }
   .muted { color: #8B8F94; }
   .small { font-size: 10.5px; }
   .mono { font-family: var(--vscode-editor-font-family, ui-monospace, monospace); }
 
   /* header */
-  header { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.08); }
-  .logo { width: 20px; height: 20px; }
-  .wordmark { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: #fff; }
+  header { display: flex; align-items: center; gap: 10px; padding-bottom: 16px; margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .logo { width: 22px; height: 22px; }
+  .wordmark { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; color: #fff; }
   .divider { color: rgba(255,255,255,0.15); }
   .repo-name { font-weight: 500; color: #C9CDD1; }
   .header-meta { margin-left: auto; font-size: 11.5px; color: #8B8F94; }
 
   /* actions */
-  .actions { display: flex; gap: 8px; margin: 16px 0; }
+  .actions { display: flex; gap: 8px; margin: 18px 0 14px; }
   button { background: transparent; color: #C9CDD1; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 500; cursor: pointer; }
   button:hover { background: rgba(255,255,255,0.06); }
   button.primary { background: #1f8a5f; color: #fff; border-color: transparent; font-weight: 600; }
   button.primary:hover { background: #23996a; }
 
   /* shared panel */
-  .panel { background: #111214; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 16px 18px; margin: 0 0 12px; }
+  .panel { background: #111214; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 18px 20px; margin: 0 0 12px; }
   .section-title { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #8B8F94; margin-bottom: 10px; }
 
   /* score */
-  .score { display: flex; gap: 20px; align-items: center; }
-  .ring-wrap { position: relative; width: 72px; height: 72px; flex-shrink: 0; }
-  .score-letter { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 26px; font-weight: 700; }
+  .score { display: flex; gap: 24px; align-items: center; padding: 20px 22px; }
+  .ring-wrap { position: relative; width: 84px; height: 84px; flex-shrink: 0; }
+  .ring { width: 84px; height: 84px; }
+  .score-letter { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 30px; font-weight: 650; letter-spacing: -0.02em; }
   .score-title { font-weight: 600; font-size: 13px; display: flex; align-items: baseline; gap: 8px; }
-  .score-num { font-size: 16px; font-weight: 700; }
-  .score-headline { font-size: 12px; margin-top: 2px; }
-  .forecast { font-size: 12px; margin-top: 8px; }
+  .score-num { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .score-headline { font-size: 12.5px; margin-top: 3px; max-width: 560px; }
+  .forecast { font-size: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06); }
   .fixes { margin-top: 12px; }
   .fixes ul { margin: 0; padding-left: 16px; }
   .fixes li { font-size: 12px; margin: 4px 0; }
   .cmd { color: #34d399; font-size: 11px; margin-top: 2px; }
 
-  /* stat cards */
-  .cards { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin: 0 0 12px; }
-  .card { background: #111214; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 12px; }
-  .card-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .card-label { font-size: 10.5px; color: #8B8F94; margin-top: 2px; text-transform: capitalize; display: flex; align-items: center; gap: 5px; }
+  /* overview */
+  .overview { display: grid; grid-template-columns: 1fr 1fr 2.2fr; gap: 28px; align-items: start; }
+  .stat-value { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; line-height: 1.1; }
+  .stat-label { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #8B8F94; margin: 4px 0 2px; }
+  .sevbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; background: rgba(255,255,255,0.04); }
+  .seg { display: block; min-width: 8px; border-radius: 2px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+  .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #9DA2A8; text-transform: capitalize; }
   .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
   /* activity */
@@ -342,6 +380,7 @@ export function renderHtml(
 </style>
 </head>
 <body>
+  <main class="container">
   <header>
     ${LOGO_SVG}
     <span class="wordmark">Fixly</span>
@@ -361,11 +400,7 @@ export function renderHtml(
 
   ${activityHtml(activity)}
 
-  <div class="cards">
-    ${cardHtml("Packages", result.totalPackages)}
-    ${cardHtml("Findings", result.vulnerabilities.length)}
-    ${SEVERITIES.map((s) => cardHtml(s, counts[s], SEVERITY_COLORS[s])).join("")}
-  </div>
+  ${overviewHtml(result, counts)}
 
   ${warningsHtml}
   ${tableHtml}
@@ -375,6 +410,7 @@ export function renderHtml(
     <span>${result.source === "osv+nvd" ? "OSV + NVD" : "OSV"}</span><span class="divider">·</span>
     <span>Fixly — detect · remediate · verify</span>
   </footer>
+  </main>
 
   <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();
