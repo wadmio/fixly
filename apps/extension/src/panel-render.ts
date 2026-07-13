@@ -1,6 +1,10 @@
 // Pure HTML/text rendering for the Fixly webview report. Deliberately free of
 // any `vscode` import so it's unit-testable in a plain Node/vitest environment
 // (the vscode-dependent panel wiring lives in panel.ts).
+//
+// Design: enterprise-dark, restrained. One accent (emerald), flat surfaces,
+// 1px hairline borders, uppercase micro-labels, severity shown as dots.
+// No gradients, no glows, no emoji, no entry animations.
 
 import {
   buildRemediationPlan,
@@ -34,20 +38,15 @@ const SEVERITY_COLORS: Record<Severity, string> = {
   high: "#fb923c",
   medium: "#facc15",
   low: "#60a5fa",
-  unknown: "#9ca3af",
+  unknown: "#8b8f94",
 };
 
 const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "unknown"];
 
-// The Fixly mark: a shield with a lightning bolt — detection with teeth.
+// The Fixly mark — shield with a bolt, single accent color, no effects.
 const LOGO_SVG = `<svg class="logo" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-  <defs>
-    <linearGradient id="fxg" x1="0" y1="0" x2="24" y2="24">
-      <stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#22d3ee"/>
-    </linearGradient>
-  </defs>
-  <path d="M12 2 4 5.4v5.4c0 5 3.4 8.8 8 10.2 4.6-1.4 8-5.2 8-10.2V5.4L12 2Z" stroke="url(#fxg)" stroke-width="1.6" stroke-linejoin="round"/>
-  <path d="M13.1 6.8 8.9 12.6h2.6l-1 4.6 4.6-6.2h-2.7l0.7-4.2Z" fill="url(#fxg)"/>
+  <path d="M12 2 4 5.4v5.4c0 5 3.4 8.8 8 10.2 4.6-1.4 8-5.2 8-10.2V5.4L12 2Z" stroke="#34d399" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M13.1 6.8 8.9 12.6h2.6l-1 4.6 4.6-6.2h-2.7l0.7-4.2Z" fill="#34d399"/>
 </svg>`;
 
 function severityCounts(result: ScanResult): Record<Severity, number> {
@@ -94,19 +93,20 @@ export function buildSummaryText(result: ScanResult): string {
   return lines.join("\n");
 }
 
-function cardHtml(label: string, value: number, accent: string): string {
-  return `<div class="card" style="--accent:${accent}"><div class="card-value">${value}</div><div class="card-label">${escapeHtml(label)}</div></div>`;
+function cardHtml(label: string, value: number, dot?: string): string {
+  const marker = dot ? `<span class="dot" style="background:${dot}"></span>` : "";
+  return `<div class="card"><div class="card-value">${value}</div><div class="card-label">${marker}${escapeHtml(label)}</div></div>`;
 }
 
-function intelChips(v: ScanVulnerability): string {
-  const chips: string[] = [];
-  if (v.malicious) chips.push(`<span class="ichip mal" title="Known malicious package (OSV MAL record)">☠ MALICIOUS</span>`);
-  if (v.knownExploited) chips.push(`<span class="ichip kev" title="In CISA's Known Exploited Vulnerabilities catalog — confirmed exploitation in the wild">⚡ exploited in the wild</span>`);
+function intelTags(v: ScanVulnerability): string {
+  const tags: string[] = [];
+  if (v.malicious) tags.push(`<span class="tag tag-crit" title="Known malicious package (OSV MAL record)">Malware</span>`);
+  if (v.knownExploited) tags.push(`<span class="tag tag-crit" title="CISA Known Exploited Vulnerabilities — confirmed exploitation in the wild">KEV</span>`);
   if (v.pocCount !== null && v.pocCount > 0)
-    chips.push(`<span class="ichip poc" title="Public proof-of-concept exploit repos on GitHub">PoC ×${v.pocCount}</span>`);
+    tags.push(`<span class="tag" title="Public proof-of-concept exploit repos on GitHub">PoC ×${v.pocCount}</span>`);
   if (v.epssScore !== null && v.epssScore >= 0.1)
-    chips.push(`<span class="ichip epss" title="EPSS: probability of exploitation in the next 30 days">EPSS ${(v.epssScore * 100).toFixed(0)}%</span>`);
-  return chips.length > 0 ? `<div class="ichips">${chips.join("")}</div>` : "";
+    tags.push(`<span class="tag" title="EPSS: probability of exploitation in the next 30 days">EPSS ${(v.epssScore * 100).toFixed(0)}%</span>`);
+  return tags.length > 0 ? `<div class="tags">${tags.join("")}</div>` : "";
 }
 
 function rowHtml(v: ScanVulnerability): string {
@@ -116,68 +116,69 @@ function rowHtml(v: ScanVulnerability): string {
   const cvss = v.cvssScore !== null ? v.cvssScore.toFixed(1) : "—";
   const nvd =
     v.nvd?.cvssScore != null
-      ? `<div class="muted" style="font-size:10px" title="NVD's independent CVSS score for this CVE">NVD ${v.nvd.cvssScore.toFixed(1)}</div>`
+      ? `<div class="muted small" title="NVD's independent CVSS score for this CVE">NVD ${v.nvd.cvssScore.toFixed(1)}</div>`
       : "";
   const typeChip =
     v.dependencyType === "transitive"
-      ? ` <span class="chip" title="Pulled in by another dependency (found in the lock file tree)">transitive</span>`
+      ? ` <span class="tag" title="Pulled in by another dependency (found in the lock file tree)">transitive</span>`
       : "";
   const sources = escapeHtml(v.sources.join(" · ").toUpperCase());
   const fix = v.fixedVersion
     ? `<span class="fix">→ ${escapeHtml(v.fixedVersion)}</span>`
     : "—";
   return `<tr>
-    <td><div class="pkg">${escapeHtml(v.package)}${typeChip}</div><div class="muted mono">v${escapeHtml(v.installedVersion)}</div></td>
-    <td class="mono">${idCell}<div class="muted" style="font-size:10px">${sources}</div></td>
+    <td><div class="pkg">${escapeHtml(v.package)}${typeChip}</div><div class="muted mono small">v${escapeHtml(v.installedVersion)}</div></td>
+    <td class="mono">${idCell}<div class="muted small">${sources}</div></td>
     <td class="mono muted">${v.cveId ? escapeHtml(v.cveId) : "—"}</td>
-    <td><span class="badge sev-${v.severity}">${escapeHtml(v.severity)}</span>${intelChips(v)}</td>
+    <td><span class="sev"><span class="dot" style="background:${SEVERITY_COLORS[v.severity]}"></span>${escapeHtml(v.severity)}</span>${intelTags(v)}</td>
     <td class="mono">${cvss}${nvd}</td>
     <td class="summary">${escapeHtml(v.title)}</td>
     <td class="mono">${fix}</td>
   </tr>`;
 }
 
-const ACTIVITY_GLYPHS: Record<ActivityEvent["kind"], string> = {
-  baseline: "◎",
-  detected: "✖",
-  escalation: "‼",
-  remediated: "✔",
-  failed: "✖",
-  resolved: "−",
+const ACTIVITY_LABELS: Record<ActivityEvent["kind"], { label: string; cls: string }> = {
+  baseline: { label: "Baseline", cls: "neutral" },
+  detected: { label: "Detected", cls: "bad" },
+  escalation: { label: "Escalated", cls: "bad" },
+  remediated: { label: "Remediated", cls: "good" },
+  failed: { label: "Failed", cls: "bad" },
+  resolved: { label: "Resolved", cls: "good" },
 };
 
 function activityHtml(activity: ActivityEvent[]): string {
   if (activity.length === 0) return "";
   const rows = activity
-    .map((e, i) => {
+    .map((e) => {
+      const meta = ACTIVITY_LABELS[e.kind];
       const mttr =
         e.mttrMs !== undefined
-          ? ` <span class="mttr">⚡ MTTR ${(e.mttrMs / 1000).toFixed(1)}s</span>`
+          ? `<span class="tag tag-good">MTTR ${(e.mttrMs / 1000).toFixed(1)}s</span>`
           : "";
-      return `<li class="act act-${e.kind}" style="animation-delay:${Math.min(i * 60, 400)}ms"><span class="act-dot"></span><span class="act-glyph">${ACTIVITY_GLYPHS[e.kind]}</span><span class="mono act-time">${escapeHtml(e.at)}</span><span class="act-text">${escapeHtml(e.text)}${mttr}</span></li>`;
+      return `<li class="act"><span class="mono act-time">${escapeHtml(e.at)}</span><span class="act-kind act-${meta.cls}">${meta.label}</span><span class="act-text">${escapeHtml(e.text)}</span>${mttr}</li>`;
     })
     .join("");
-  return `<div class="feed rise" style="animation-delay:120ms">
-    <div class="section-title">Guardian activity <span class="muted">— this session, newest first</span></div>
-    <ul class="timeline">${rows}</ul>
-  </div>`;
+  return `<section class="panel">
+    <div class="section-title">Guardian activity</div>
+    <ul class="activity">${rows}</ul>
+  </section>`;
 }
 
 function forecastHtml(plan: RemediationPlan): string {
   if (plan.actions.length === 0) return "";
   const { before, after } = plan.forecast;
-  return `<div class="forecast">Fix everything → <span class="forecast-grade" style="color:${GRADE_COLORS[after.grade]}">${after.grade} (${after.score}/100)</span> <span class="muted">from ${before.grade} (${before.score}/100) · ${plan.actions.length} action${plan.actions.length === 1 ? "" : "s"}</span></div>`;
+  return `<div class="forecast">Fix everything → <span style="color:${GRADE_COLORS[after.grade]};font-weight:600">${after.grade} (${after.score}/100)</span><span class="muted"> · currently ${before.grade} (${before.score}/100) · ${plan.actions.length} action${plan.actions.length === 1 ? "" : "s"}</span></div>`;
 }
 
 function scoreHtml(grade: ScanGrade, plan: RemediationPlan): string {
   const color = GRADE_COLORS[grade.grade];
-  // SVG progress ring: r=46 → circumference ≈ 289.
-  const C = 289;
-  const dash = Math.max(0, Math.min(100, grade.score)) * (C / 100);
+  // Static SVG progress ring: r=30 → circumference ≈ 188.5.
+  const C = 188.5;
+  const dash = (Math.max(0, Math.min(100, grade.score)) / 100) * C;
   const fixes =
     grade.topFixes.length > 0
       ? `<div class="fixes">
-          <div class="fixes-title">Fix these first</div>
+          <div class="section-title">Fix these first</div>
           <ul>
             ${grade.topFixes
               .map(
@@ -188,22 +189,22 @@ function scoreHtml(grade: ScanGrade, plan: RemediationPlan): string {
           </ul>
         </div>`
       : "";
-  return `<div class="score rise" style="--grade:${color}">
+  return `<section class="panel score">
     <div class="ring-wrap">
-      <svg class="ring" viewBox="0 0 110 110">
-        <circle cx="55" cy="55" r="46" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="7"/>
-        <circle class="ring-fill" cx="55" cy="55" r="46" fill="none" stroke="${color}" stroke-width="7"
-          stroke-linecap="round" stroke-dasharray="${dash} ${C}" transform="rotate(-90 55 55)"/>
+      <svg class="ring" viewBox="0 0 72 72">
+        <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4"/>
+        <circle cx="36" cy="36" r="30" fill="none" stroke="${color}" stroke-width="4"
+          stroke-linecap="round" stroke-dasharray="${dash} ${C}" transform="rotate(-90 36 36)"/>
       </svg>
-      <div class="score-letter" style="color:${color};text-shadow:0 0 32px ${color}88">${grade.grade}</div>
+      <div class="score-letter" style="color:${color}">${grade.grade}</div>
     </div>
     <div class="score-body">
-      <div class="score-title">Fixly Score <span class="score-num mono" style="color:${color}">${grade.score}<span class="muted">/100</span></span></div>
+      <div class="score-title">Fixly Score <span class="mono score-num">${grade.score}<span class="muted">/100</span></span></div>
       <div class="score-headline muted">${escapeHtml(grade.headline)}</div>
       ${forecastHtml(plan)}
       ${fixes}
     </div>
-  </div>`;
+  </section>`;
 }
 
 export function renderHtml(
@@ -216,31 +217,33 @@ export function renderHtml(
   const plan = buildRemediationPlan(result);
   const fixAllButton =
     plan.actions.length > 0
-      ? `<button id="fixall" class="primary">⚡ Fix Everything &amp; Verify → ${plan.forecast.after.grade} (${plan.forecast.after.score})</button>`
+      ? `<button id="fixall" class="primary">Fix Everything &amp; Verify</button>`
       : "";
 
   const warningsHtml =
     result.warnings.length > 0 || result.error
-      ? `<div class="warnings rise">
-          <div class="warnings-title">Warnings</div>
+      ? `<section class="panel warnings">
+          <div class="section-title">Warnings</div>
           <ul>
             ${result.error ? `<li class="err">${escapeHtml(result.error.message)}</li>` : ""}
             ${result.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}
           </ul>
-        </div>`
+        </section>`
       : "";
 
   const tableHtml =
     result.vulnerabilities.length > 0
-      ? `<table class="rise" style="animation-delay:180ms">
+      ? `<section class="panel table-panel">
+          <div class="section-title">Findings</div>
+          <table>
           <thead>
             <tr>
               <th>Package</th><th>ID</th><th>CVE</th><th>Severity</th><th>CVSS</th><th>Summary</th><th>Fix</th>
             </tr>
           </thead>
           <tbody>${result.vulnerabilities.map(rowHtml).join("")}</tbody>
-        </table>`
-      : `<div class="clean rise" style="animation-delay:180ms"><div class="clean-mark">✔</div>No vulnerabilities found across ${result.totalPackages} packages.<div class="muted" style="margin-top:4px">The guardian is watching — new advisories and dependency changes are remediated automatically.</div></div>`;
+        </table></section>`
+      : `<section class="panel clean">No vulnerabilities found across ${result.totalPackages} packages.<div class="muted" style="margin-top:4px">Monitoring for new advisories and dependency changes.</div></section>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -251,155 +254,127 @@ export function renderHtml(
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  body {
-    font-family: var(--vscode-font-family, system-ui);
-    background:
-      radial-gradient(1200px 500px at 80% -10%, rgba(52,211,153,0.07), transparent 60%),
-      radial-gradient(900px 400px at -10% 0%, rgba(34,211,238,0.06), transparent 55%),
-      #0A0A0A;
-    color: #fff; margin: 0; padding: 24px; font-size: 13px;
-  }
-  .muted { color: #9aa0a6; }
+  body { font-family: var(--vscode-font-family, system-ui); background: #0A0A0A; color: #E6E6E6; margin: 0; padding: 24px; font-size: 13px; line-height: 1.45; }
+  .muted { color: #8B8F94; }
+  .small { font-size: 10.5px; }
   .mono { font-family: var(--vscode-editor-font-family, ui-monospace, monospace); }
 
-  @keyframes riseIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-  .rise { animation: riseIn 420ms cubic-bezier(0.22,1,0.36,1) both; }
+  /* header */
+  header { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .logo { width: 20px; height: 20px; }
+  .wordmark { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: #fff; }
+  .divider { color: rgba(255,255,255,0.15); }
+  .repo-name { font-weight: 500; color: #C9CDD1; }
+  .header-meta { margin-left: auto; font-size: 11.5px; color: #8B8F94; }
 
-  /* ---- brand header ---- */
-  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-  .logo { width: 28px; height: 28px; filter: drop-shadow(0 0 10px rgba(52,211,153,0.45)); }
-  .wordmark { font-size: 20px; font-weight: 800; letter-spacing: -0.02em;
-    background: linear-gradient(90deg, #34d399, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .tagline { font-size: 11px; color: #9aa0a6; border: 1px solid rgba(255,255,255,0.1); border-radius: 999px; padding: 2px 10px; letter-spacing: 0.06em; text-transform: uppercase; }
-  .repo-line { margin-left: auto; text-align: right; }
-  .repo-name { font-weight: 700; font-size: 14px; }
-  .sub { color: #9aa0a6; font-size: 11.5px; margin-top: 2px; }
+  /* actions */
+  .actions { display: flex; gap: 8px; margin: 16px 0; }
+  button { background: transparent; color: #C9CDD1; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 500; cursor: pointer; }
+  button:hover { background: rgba(255,255,255,0.06); }
+  button.primary { background: #1f8a5f; color: #fff; border-color: transparent; font-weight: 600; }
+  button.primary:hover { background: #23996a; }
 
-  /* ---- actions ---- */
-  .actions { display: flex; gap: 8px; margin: 18px 0; flex-wrap: wrap; }
-  button { background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease; }
-  button:hover { transform: translateY(-1px); background: rgba(255,255,255,0.1); }
-  button.primary { background: linear-gradient(90deg, #34d399, #22d3ee); color: #04150d; border: 0; box-shadow: 0 4px 24px rgba(52,211,153,0.35); }
-  button.primary:hover { box-shadow: 0 6px 32px rgba(52,211,153,0.5); }
-  button.secondary { background: rgba(255,255,255,0.04); }
+  /* shared panel */
+  .panel { background: #111214; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 16px 18px; margin: 0 0 12px; }
+  .section-title { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #8B8F94; margin-bottom: 10px; }
 
-  /* ---- score hero ---- */
-  .score { display: flex; gap: 22px; align-items: center;
-    background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015));
-    border: 1px solid color-mix(in srgb, var(--grade) 28%, transparent);
-    box-shadow: 0 0 60px color-mix(in srgb, var(--grade) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.06);
-    border-radius: 16px; padding: 20px 24px; margin: 16px 0; }
-  .ring-wrap { position: relative; width: 110px; height: 110px; flex-shrink: 0; }
-  .ring { width: 110px; height: 110px; }
-  @keyframes ringIn { from { stroke-dasharray: 0 289; } }
-  .ring-fill { animation: ringIn 900ms cubic-bezier(0.22,1,0.36,1) both; filter: drop-shadow(0 0 6px currentColor); }
-  @keyframes pop { 0% { transform: translate(-50%,-50%) scale(0.6); opacity: 0; } 60% { transform: translate(-50%,-50%) scale(1.12); } 100% { transform: translate(-50%,-50%) scale(1); opacity: 1; } }
-  .score-letter { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
-    font-size: 46px; font-weight: 800; letter-spacing: -0.03em; animation: pop 600ms 250ms cubic-bezier(0.22,1,0.36,1) both; }
-  .score-title { font-weight: 700; font-size: 14px; display: flex; align-items: baseline; gap: 8px; }
-  .score-num { font-size: 22px; font-weight: 800; }
-  .score-headline { font-size: 12.5px; margin-top: 3px; }
-  .forecast { font-size: 12.5px; margin-top: 10px; font-weight: 600; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 999px; padding: 5px 12px; width: fit-content; }
-  .forecast-grade { font-weight: 800; }
+  /* score */
+  .score { display: flex; gap: 20px; align-items: center; }
+  .ring-wrap { position: relative; width: 72px; height: 72px; flex-shrink: 0; }
+  .score-letter { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 26px; font-weight: 700; }
+  .score-title { font-weight: 600; font-size: 13px; display: flex; align-items: baseline; gap: 8px; }
+  .score-num { font-size: 16px; font-weight: 700; }
+  .score-headline { font-size: 12px; margin-top: 2px; }
+  .forecast { font-size: 12px; margin-top: 8px; }
   .fixes { margin-top: 12px; }
-  .fixes-title { font-size: 10.5px; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.08em; text-transform: uppercase; color: #9aa0a6; }
   .fixes ul { margin: 0; padding-left: 16px; }
-  .fixes li { font-size: 12px; margin: 5px 0; }
-  .cmd { color: #34d399; background: rgba(52,211,153,0.08); border: 1px solid rgba(52,211,153,0.2); border-radius: 6px; padding: 2px 8px; margin-top: 3px; width: fit-content; font-size: 11px; }
+  .fixes li { font-size: 12px; margin: 4px 0; }
+  .cmd { color: #34d399; font-size: 11px; margin-top: 2px; }
 
-  /* ---- stat cards ---- */
-  .cards { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin: 16px 0; }
-  .card { position: relative; overflow: hidden; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px 12px 10px; }
-  .card::before { content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 2px; background: var(--accent, rgba(255,255,255,0.15)); opacity: 0.85; }
-  .card-value { font-size: 22px; font-weight: 800; }
-  .card-label { font-size: 10.5px; color: #9aa0a6; margin-top: 2px; text-transform: capitalize; }
+  /* stat cards */
+  .cards { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin: 0 0 12px; }
+  .card { background: #111214; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 12px; }
+  .card-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .card-label { font-size: 10.5px; color: #8B8F94; margin-top: 2px; text-transform: capitalize; display: flex; align-items: center; gap: 5px; }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
-  /* ---- guardian feed (timeline) ---- */
-  .feed { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px 18px; margin: 16px 0; }
-  .section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #cbd0d6; margin-bottom: 10px; }
-  .timeline { margin: 0; padding: 0 0 0 6px; list-style: none; position: relative; }
-  .timeline::before { content: ""; position: absolute; left: 9px; top: 6px; bottom: 6px; width: 1px; background: linear-gradient(180deg, rgba(52,211,153,0.5), rgba(255,255,255,0.06)); }
-  .act { position: relative; display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; margin: 8px 0; padding-left: 18px; animation: riseIn 360ms cubic-bezier(0.22,1,0.36,1) both; }
-  .act-dot { position: absolute; left: 0; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: #9aa0a6; box-shadow: 0 0 0 3px rgba(255,255,255,0.05); }
-  .act-remediated .act-dot, .act-resolved .act-dot { background: #34d399; box-shadow: 0 0 10px rgba(52,211,153,0.7); }
-  .act-detected .act-dot, .act-failed .act-dot, .act-escalation .act-dot { background: #f87171; box-shadow: 0 0 10px rgba(248,113,113,0.6); }
-  .act-glyph { width: 14px; text-align: center; }
-  .act-remediated .act-glyph, .act-resolved .act-glyph { color: #34d399; }
-  .act-detected .act-glyph, .act-failed .act-glyph, .act-escalation .act-glyph { color: #f87171; }
-  .act-time { color: #6b7280; font-size: 11px; }
-  .act-text { color: #e5e7eb; }
-  .mttr { background: linear-gradient(90deg, rgba(52,211,153,0.18), rgba(34,211,238,0.14)); color: #34d399; border: 1px solid rgba(52,211,153,0.35); border-radius: 999px; padding: 1px 9px; font-size: 10.5px; font-weight: 800; margin-left: 6px; white-space: nowrap; }
+  /* activity */
+  .activity { margin: 0; padding: 0; list-style: none; }
+  .act { display: flex; gap: 10px; align-items: baseline; font-size: 12px; padding: 5px 0; border-top: 1px solid rgba(255,255,255,0.05); }
+  .act:first-child { border-top: 0; }
+  .act-time { color: #6E7378; font-size: 11px; flex-shrink: 0; }
+  .act-kind { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; width: 82px; flex-shrink: 0; }
+  .act-good { color: #34d399; }
+  .act-bad { color: #f87171; }
+  .act-neutral { color: #8B8F94; }
+  .act-text { color: #C9CDD1; }
 
-  /* ---- warnings ---- */
-  .warnings { background: rgba(120,90,0,0.1); border: 1px solid rgba(180,140,0,0.35); border-radius: 12px; padding: 12px 14px; margin: 16px 0; }
-  .warnings-title { font-size: 10.5px; font-weight: 700; color: #f4c150; margin-bottom: 6px; letter-spacing: 0.08em; text-transform: uppercase; }
+  /* tags */
+  .tags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag { display: inline-block; border: 1px solid rgba(255,255,255,0.16); border-radius: 4px; padding: 0 6px; font-size: 10px; font-weight: 500; color: #8B8F94; white-space: nowrap; }
+  .tag-crit { color: #f87171; border-color: rgba(248,113,113,0.4); }
+  .tag-good { color: #34d399; border-color: rgba(52,211,153,0.4); }
+
+  /* warnings */
+  .warnings .section-title { color: #d4a72c; }
   .warnings ul { margin: 0; padding-left: 16px; }
-  .warnings li { font-size: 12px; color: #e7d6a8; margin: 2px 0; }
+  .warnings li { font-size: 12px; color: #b8a05e; margin: 2px 0; }
   .warnings li.err { color: #f87171; }
 
-  /* ---- findings table ---- */
-  table { width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; overflow: hidden; }
-  th { text-align: left; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #9aa0a6; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); }
-  td { padding: 10px 12px; border-top: 1px solid rgba(255,255,255,0.05); vertical-align: top; }
-  tbody tr { transition: background 120ms ease; }
-  tbody tr:hover { background: rgba(255,255,255,0.035); }
-  .pkg { font-weight: 700; }
-  .summary { max-width: 360px; color: #b9bec5; }
-  .fix { color: #34d399; font-weight: 600; }
-  a { color: #8ab4f8; text-decoration: none; }
+  /* table */
+  .table-panel { padding: 12px 0 0; }
+  .table-panel .section-title { padding: 0 18px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8B8F94; font-weight: 600; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  th:first-child, td:first-child { padding-left: 18px; }
+  th:last-child, td:last-child { padding-right: 18px; }
+  td { padding: 10px 12px; border-top: 1px solid rgba(255,255,255,0.05); vertical-align: top; font-size: 12px; }
+  tbody tr:hover { background: rgba(255,255,255,0.025); }
+  .pkg { font-weight: 600; color: #E6E6E6; }
+  .summary { max-width: 360px; color: #9DA2A8; }
+  .fix { color: #34d399; }
+  a { color: #79A8E8; text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .clean { background: rgba(52,211,153,0.05); border: 1px solid rgba(52,211,153,0.25); border-radius: 14px; padding: 30px; text-align: center; color: #c7cdd3; }
-  .clean-mark { font-size: 26px; color: #34d399; margin-bottom: 6px; text-shadow: 0 0 18px rgba(52,211,153,0.7); }
-  .chip { display: inline-block; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 0 4px; font-size: 10px; font-weight: 400; color: #9aa0a6; vertical-align: middle; }
-  .badge { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 700; text-transform: capitalize; }
-  .sev-critical { background: rgba(248,113,113,0.14); color: #f87171; border: 1px solid rgba(248,113,113,0.35); }
-  .sev-high { background: rgba(251,146,60,0.12); color: #fb923c; border: 1px solid rgba(251,146,60,0.3); }
-  .sev-medium { background: rgba(250,204,21,0.1); color: #facc15; border: 1px solid rgba(250,204,21,0.25); }
-  .sev-low { background: rgba(96,165,250,0.1); color: #60a5fa; border: 1px solid rgba(96,165,250,0.25); }
-  .sev-unknown { background: rgba(255,255,255,0.05); color: #9aa0a6; border: 1px solid rgba(255,255,255,0.15); }
-  .ichips { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
-  .ichip { border-radius: 999px; padding: 0 7px; font-size: 10px; font-weight: 700; white-space: nowrap; }
-  .ichip.kev { background: rgba(248,113,113,0.14); color: #f87171; border: 1px solid rgba(248,113,113,0.4); }
-  .ichip.mal { background: #450a0a; color: #fecaca; border: 1px solid #f87171; }
-  .ichip.poc { background: rgba(251,146,60,0.12); color: #fb923c; border: 1px solid rgba(251,146,60,0.35); }
-  .ichip.epss { background: rgba(250,204,21,0.1); color: #facc15; border: 1px solid rgba(250,204,21,0.3); }
+  .sev { display: inline-flex; align-items: center; gap: 6px; text-transform: capitalize; font-size: 12px; }
+  .clean { color: #C9CDD1; }
 
-  .footer { margin-top: 22px; text-align: center; font-size: 11px; color: #6b7280; }
-  .footer b { background: linear-gradient(90deg, #34d399, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  footer { margin-top: 16px; font-size: 11px; color: #6E7378; display: flex; gap: 8px; }
 </style>
 </head>
 <body>
-  <div class="brand rise">
+  <header>
     ${LOGO_SVG}
-    <span class="wordmark">fixly</span>
-    <span class="tagline">real-time remediation</span>
-    <div class="repo-line">
-      <div class="repo-name">${escapeHtml(result.repo)}</div>
-      <div class="sub">${result.totalPackages} packages${result.transitivePackages > 0 ? ` (${result.directPackages} direct + ${result.transitivePackages} transitive)` : ""} · ${result.resolvedPackages} checked · ${result.source === "osv+nvd" ? "OSV + NVD" : "OSV"}</div>
-    </div>
-  </div>
+    <span class="wordmark">Fixly</span>
+    <span class="divider">/</span>
+    <span class="repo-name">${escapeHtml(result.repo)}</span>
+    <span class="header-meta">${result.totalPackages} packages${result.transitivePackages > 0 ? ` · ${result.directPackages} direct · ${result.transitivePackages} transitive` : ""} · ${result.resolvedPackages} checked</span>
+  </header>
 
-  <div class="actions rise" style="animation-delay:60ms">
+  <div class="actions">
     ${fixAllButton}
-    <button id="rescan" class="secondary">Rescan</button>
-    <button id="copy" class="secondary">Copy Summary</button>
-    <button id="export" class="secondary">Export JSON</button>
+    <button id="rescan">Rescan</button>
+    <button id="copy">Copy Summary</button>
+    <button id="export">Export JSON</button>
   </div>
 
   ${scoreHtml(grade, plan)}
 
   ${activityHtml(activity)}
 
-  <div class="cards rise" style="animation-delay:140ms">
-    ${cardHtml("Packages", result.totalPackages, "rgba(255,255,255,0.25)")}
-    ${cardHtml("Vulnerabilities", result.vulnerabilities.length, result.vulnerabilities.length > 0 ? "#f87171" : "#34d399")}
+  <div class="cards">
+    ${cardHtml("Packages", result.totalPackages)}
+    ${cardHtml("Findings", result.vulnerabilities.length)}
     ${SEVERITIES.map((s) => cardHtml(s, counts[s], SEVERITY_COLORS[s])).join("")}
   </div>
 
   ${warningsHtml}
   ${tableHtml}
 
-  <div class="footer">guarded by <b>fixly</b> — detect · remediate · verify</div>
+  <footer>
+    <span>Scanned ${escapeHtml(result.scannedAt)}</span><span class="divider">·</span>
+    <span>${result.source === "osv+nvd" ? "OSV + NVD" : "OSV"}</span><span class="divider">·</span>
+    <span>Fixly — detect · remediate · verify</span>
+  </footer>
 
   <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();

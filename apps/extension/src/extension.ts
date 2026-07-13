@@ -38,7 +38,7 @@ const ACTIVITY_CAP = 50;
 const CHANGE_DEBOUNCE_MS = 1_200;
 
 function logLine(msg: string): void {
-  output.appendLine(`[${new Date().toISOString()}] ${msg}`);
+  output.appendLine(`[${new Date().toTimeString().slice(0, 8)}] ${msg}`);
 }
 
 function clock(): string {
@@ -255,13 +255,13 @@ async function handleScanResult(
     if (n > 0) {
       vscode.window
         .showWarningMessage(
-          `Fixly: baseline grade ${grade.grade} (${grade.score}/100) — ${n} existing finding${n === 1 ? "" : "s"} (not auto-fixed).`,
-          "Fix Everything & Verify",
-          "Show Report"
+          `Fixly — baseline ${grade.grade} (${grade.score}/100), ${n} existing finding${n === 1 ? "" : "s"}. Not auto-fixed.`,
+          "Fix All & Verify",
+          "Open Report"
         )
         .then((choice) => {
-          if (choice === "Fix Everything & Verify") void fixEverything();
-          else if (choice === "Show Report") void vscode.commands.executeCommand("fixly.showReport");
+          if (choice === "Fix All & Verify") void fixEverything();
+          else if (choice === "Open Report") void vscode.commands.executeCommand("fixly.showReport");
         });
     }
     return;
@@ -291,23 +291,23 @@ async function handleScanResult(
   const kind = diff.added.length > 0 ? "detected" : "escalation";
   const summary =
     kind === "escalation"
-      ? `${packages}: now known-exploited (CISA KEV)`
-      : `${triggered.length} new finding${triggered.length === 1 ? "" : "s"} in ${packages} — grade dropped to ${grade.grade} (${grade.score}/100)`;
+      ? `${packages} now known-exploited (CISA KEV)`
+      : `${triggered.length} new vulnerabilit${triggered.length === 1 ? "y" : "ies"} in ${packages} — grade ${grade.grade} (${grade.score}/100)`;
   record(kind, summary);
-  logLine(`Guardian: ${summary}`);
+  logLine(summary);
   applyResultToUi(result);
 
   const startedAt = detectedAt || Date.now();
   if (config().get<boolean>("autoRemediate", true)) {
-    vscode.window.showWarningMessage(`Fixly: ${summary}. Auto-remediating…`);
+    vscode.window.showWarningMessage(`Fixly — ${summary}. Remediating…`);
     await runRemediation(result, triggered, startedAt);
   } else {
     snapshot = snapshotFindings(result.vulnerabilities);
     vscode.window
-      .showWarningMessage(`Fixly: ${summary}.`, "Fix & Verify", "Show Report")
+      .showWarningMessage(`Fixly — ${summary}.`, "Fix & Verify", "Open Report")
       .then((choice) => {
         if (choice === "Fix & Verify") void runRemediation(result, triggered, Date.now());
-        else if (choice === "Show Report") void vscode.commands.executeCommand("fixly.showReport");
+        else if (choice === "Open Report") void vscode.commands.executeCommand("fixly.showReport");
       });
   }
 }
@@ -353,7 +353,7 @@ async function runRemediation(
           : "";
       record(
         "remediated",
-        `remediated ${outcome.changes.length} package${outcome.changes.length === 1 ? "" : "s"} — grade ${outcome.after.grade} (${outcome.after.score}/100), verified by re-scan${unfixableNote}`,
+        `${outcome.changes.length} package${outcome.changes.length === 1 ? "" : "s"} fixed — grade ${outcome.after.grade} (${outcome.after.score}/100), verified${unfixableNote}`,
         outcome.mttrMs ?? undefined
       );
       logLine(`Remediated in ${mttr}s — verified.`);
@@ -361,14 +361,14 @@ async function runRemediation(
       applyResultToUi(outcome.verifyResult);
       vscode.window
         .showInformationMessage(
-          `Fixly: remediated in ${mttr}s — grade ${outcome.after.grade} (${outcome.after.score}/100), verified by re-scan.`,
-          "Show Report"
+          `Fixly — remediated in ${mttr}s. Grade ${outcome.after.grade} (${outcome.after.score}/100), verified.`,
+          "Open Report"
         )
         .then((choice) => {
-          if (choice === "Show Report") void vscode.commands.executeCommand("fixly.showReport");
+          if (choice === "Open Report") void vscode.commands.executeCommand("fixly.showReport");
         });
     } else {
-      record("failed", `auto-remediation failed: ${outcome.failure ?? "unknown"}`);
+      record("failed", `remediation failed: ${outcome.failure ?? "unknown"}`);
       logLine(`Remediation failed: ${outcome.failure ?? "unknown"}`);
       // Keep the detection scan as the snapshot so the same findings don't
       // re-trigger a remediation loop every cycle.
@@ -378,11 +378,11 @@ async function runRemediation(
       if (outcome.verifyResult) applyResultToUi(outcome.verifyResult);
       vscode.window
         .showErrorMessage(
-          `Fixly: auto-remediation failed — ${outcome.failure ?? "unknown"}.`,
-          "Show Report"
+          `Fixly — remediation failed: ${outcome.failure ?? "unknown"}.`,
+          "Open Report"
         )
         .then((choice) => {
-          if (choice === "Show Report") void vscode.commands.executeCommand("fixly.showReport");
+          if (choice === "Open Report") void vscode.commands.executeCommand("fixly.showReport");
         });
     }
   } finally {
