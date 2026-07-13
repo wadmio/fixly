@@ -12,6 +12,7 @@ import { FixlyPanel } from "./panel";
 import { updateDiagnostics } from "./diagnostics";
 import { FixlyQuickFixProvider } from "./quickfix";
 import { remediateInEditor } from "./remediator";
+import { GuardianTerminal } from "./terminal";
 import type { ActivityEvent } from "./panel-render";
 
 let output: vscode.OutputChannel;
@@ -34,6 +35,7 @@ let detectedAt = 0;
 
 const activity: ActivityEvent[] = [];
 const ACTIVITY_CAP = 50;
+const guardianTerminal = new GuardianTerminal();
 
 const CHANGE_DEBOUNCE_MS = 1_200;
 
@@ -58,6 +60,7 @@ export function activate(context: vscode.ExtensionContext): void {
   FixlyPanel.extensionUri = context.extensionUri;
   output = vscode.window.createOutputChannel("Fixly");
   context.subscriptions.push(output);
+  context.subscriptions.push({ dispose: () => guardianTerminal.dispose() });
 
   diagnostics = vscode.languages.createDiagnosticCollection("fixly");
   context.subscriptions.push(diagnostics);
@@ -248,6 +251,10 @@ async function handleScanResult(
       "baseline",
       `baseline ${grade.grade} (${grade.score}/100) — ${n} existing finding${n === 1 ? "" : "s"}, ${result.totalPackages} packages`
     );
+    guardianTerminal.write(
+      "baseline",
+      `grade ${grade.grade} (${grade.score}/100) · ${n} finding${n === 1 ? "" : "s"} · ${result.totalPackages} packages · watching`
+    );
     applyResultToUi(result);
     if (opts.revealPanel) {
       FixlyPanel.show(result, () => runScan({ revealPanel: true, quiet: false }), activity);
@@ -275,6 +282,10 @@ async function handleScanResult(
       "resolved",
       `${diff.resolvedKeys.length} finding${diff.resolvedKeys.length === 1 ? "" : "s"} resolved — grade ${grade.grade} (${grade.score}/100)`
     );
+    guardianTerminal.write(
+      "resolved",
+      `${diff.resolvedKeys.length} finding${diff.resolvedKeys.length === 1 ? "" : "s"} resolved · grade ${grade.grade} (${grade.score}/100)`
+    );
   }
 
   if (triggered.length === 0) {
@@ -295,6 +306,13 @@ async function handleScanResult(
       : `${triggered.length} new vulnerabilit${triggered.length === 1 ? "y" : "ies"} in ${packages} — grade ${grade.grade} (${grade.score}/100)`;
   record(kind, summary);
   logLine(summary);
+  guardianTerminal.write(
+    kind === "escalation" ? "escalated" : "detected",
+    kind === "escalation"
+      ? summary
+      : `${triggered.length} vulnerabilit${triggered.length === 1 ? "y" : "ies"} in ${packages} · grade ${grade.grade} (${grade.score}/100)`
+  );
+  guardianTerminal.show();
   applyResultToUi(result);
 
   const startedAt = detectedAt || Date.now();
@@ -335,6 +353,7 @@ async function runRemediation(
   remediating = true;
   statusBar.text = "$(sync~spin) Fixly: remediating…";
   statusBar.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
+  guardianTerminal.write("remediating", "fix package.json · npm install · verify");
 
   try {
     const outcome = await vscode.window.withProgress(
@@ -357,6 +376,10 @@ async function runRemediation(
         outcome.mttrMs ?? undefined
       );
       logLine(`Remediated in ${mttr}s — verified.`);
+      guardianTerminal.write(
+        "remediated",
+        `${outcome.changes.join(" · ")} · grade ${outcome.after.grade} (${outcome.after.score}/100) · verified · MTTR ${mttr}s`
+      );
       snapshot = snapshotFindings(outcome.verifyResult.vulnerabilities);
       applyResultToUi(outcome.verifyResult);
       vscode.window
@@ -370,6 +393,7 @@ async function runRemediation(
     } else {
       record("failed", `remediation failed: ${outcome.failure ?? "unknown"}`);
       logLine(`Remediation failed: ${outcome.failure ?? "unknown"}`);
+      guardianTerminal.write("failed", outcome.failure ?? "unknown");
       // Keep the detection scan as the snapshot so the same findings don't
       // re-trigger a remediation loop every cycle.
       snapshot = snapshotFindings(

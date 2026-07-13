@@ -27,19 +27,24 @@ so rehearsal also warms the path.
    - Say the line: *"I will not touch the keyboard after the next command."*
 3. **The attack** — open the integrated terminal (Ctrl+`) and run:
    ```
-   npm install lodash@4.17.20
+   npm install lodash@4.17.20 --no-audit --no-fund
    ```
-   (Frame it: "a developer — or an AI agent — just pulled in a dependency
-   with five known CVEs.")
+   (The flags silence npm's own audit chatter so Fixly's response owns the
+   screen. Frame it: "a developer — or an AI agent — just pulled in a
+   dependency with five known CVEs.")
 4. **Hands off. Watch, in order (~10–20 seconds total):**
+   - the terminal panel switches itself to the **Fixly Guardian** stream:
+     ```
+     fixly  18:19:59  detected     5 vulnerabilities in lodash · grade F (42/100)
+     fixly  18:20:00  remediating  fix package.json · npm install · verify
+     fixly  18:20:04  remediated   lodash: "^4.17.20" → "^4.18.0" · grade A (100/100) · verified · MTTR 4.2s
+     ```
    - status bar → **`Fixly F · 42`** on red,
-   - warning toast: *"Fixly: 5 new findings in lodash — grade dropped to F.
-     Auto-remediating…"*,
-   - progress toast: *"remediating — fix → install → verify…"*,
+   - warning toast: *"Fixly — 5 new vulnerabilities in lodash. Remediating…"*,
    - **package.json rewrites itself in the open editor** (`^4.17.20` →
      `^4.18.0`),
-   - success toast: *"Fixly: remediated in N.Ns — grade A (100/100),
-     verified by re-scan."*,
+   - success toast: *"Fixly — remediated in N.Ns. Grade A (100/100),
+     verified."*,
    - status bar back to **`Fixly A · 100`**.
 5. **The receipts** — click the status bar item to open the report panel:
    the **Guardian activity feed** shows the whole story with an **MTTR
