@@ -18,7 +18,8 @@ Fixly ships **five surfaces over one shared core** (`@fixly/core`):
   `check` (SAFE/CAUTION/BLOCK verdict for one package), and `guard` (pre-install check wrapped
   around `npm|pnpm|yarn|bun install`).
 - **VS Code extension** — scan the open project in-editor: inline diagnostics on `package.json`,
-  on-save rescans, status-bar indicator, webview report.
+  on-save (and opt-in as-you-type) rescans, a status-bar indicator, and a webview report with a
+  one-click **Apply Remediation Plan** (diff preview + Grade Forecast).
 - **MCP server** (`fixly-mcp`) — gives AI coding agents (Claude Code, Cursor, …) security verdicts:
   `check_package`, `scan_project`, `suggest_safe_alternative`.
 - **ML lab** (`ml/`) — trains a package-**name**-risk model in Python (on real OSV malware data) and
@@ -52,8 +53,9 @@ Fixly ships **five surfaces over one shared core** (`@fixly/core`):
 - A deterministic A–F **Fixly Score** per scan, with the top fixes ranked by points recovered
 - Structured, severity-sorted reports; SARIF 2.1.0 output; scan-over-scan
   **history & deltas** in the browser (localStorage — no accounts, no server storage)
-- In-editor **inline diagnostics** on `package.json` + **on-save rescans** and a
-  live status-bar indicator (VS Code extension)
+- In-editor **inline diagnostics** on `package.json`, **on-save** (and opt-in **as-you-type**)
+  **rescans**, a live status-bar indicator, and a one-click **Apply Remediation Plan** with a
+  diff preview and Grade Forecast (VS Code extension)
 
 **Out of scope (for now)**
 
@@ -169,10 +171,16 @@ for setup with Claude Code.
 ### VS Code extension — `fixly-vscode`
 
 The **Fixly: Scan Current Project** command reads the open workspace's manifest files and calls the
-same `@fixly/core` scanner, then renders a webview report (Fixly Score, summary cards, findings
-table, warnings, and **Rescan / Copy Summary / Export JSON** actions). Vulnerable **direct**
-dependencies get inline diagnostics on `package.json`; saving `package.json`/`package-lock.json`
-triggers a debounced rescan (`fixly.scanOnSave`); a status-bar item shows live severity counts.
+same `@fixly/core` scanner, then renders a webview report (Fixly Score, a **Grade Forecast** line
+with an **Apply Fix Plan** button, summary cards, findings table, warnings, and
+**Rescan / Copy Summary / Export JSON** actions). Vulnerable **direct** dependencies get inline
+diagnostics on `package.json`; saving `package.json`/`package-lock.json` triggers a debounced rescan
+(`fixly.scanOnSave`), and editing it rescans from the unsaved buffer when `fixly.scanOnType` is on;
+a status-bar item shows live severity counts and the forecast grade. **Fixly: Apply Remediation
+Plan** (`fixly.applyRemediationPlan`) writes the fix plan into `package.json` (direct upgrades +
+transitive `overrides`) behind a side-by-side diff preview and a confirmation, listing malware
+`npm uninstall` commands to run by hand. An optional `fixly.nvdApiKey` supplies an NVD key for wider
+CVE coverage.
 
 ### ML lab — `ml/`
 

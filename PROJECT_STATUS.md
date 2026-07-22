@@ -28,8 +28,9 @@ that trains the name-risk model the verdict engine runs via ONNX.
 - Query OSV and normalize findings (severity, CVSS, CVE, fix version, **affected
   ranges**, direct/transitive origin), sorted by severity then package name.
 - Cross-reference CVEs against **NVD** for an independent CVSS score
-  (best-effort under NVD's public rate limits; `NVD_API_KEY` raises coverage;
-  the report states exactly how many CVEs were covered).
+  (best-effort under NVD's public rate limits; a key — `NVD_API_KEY` or the
+  extension's `fixly.nvdApiKey` setting — raises coverage and enables concurrent
+  fetching; the report states exactly how many CVEs were covered).
 - Independently re-verify each finding's installed version against the OSV
   affected range (local semver matcher) and mark limited-confidence cases.
 - **Scan history in the browser** (localStorage): "Recent scans" on the
@@ -39,7 +40,10 @@ that trains the name-risk model the verdict engine runs via ONNX.
 - Web report (Fixly Score card, summary, delta banner, warnings, findings table
   with direct/transitive filter, NVD scores, exploit-intel markers) and a VS Code
   extension with a webview report, **inline diagnostics on package.json**,
-  **on-save rescans** (`fixly.scanOnSave`), and a live **status-bar** severity indicator.
+  **on-save rescans** (`fixly.scanOnSave`) plus opt-in **as-you-type** rescans
+  (`fixly.scanOnType`), a live **status-bar** severity indicator, a **Grade Forecast**
+  in the panel and status bar, and a one-click **Apply Remediation Plan**
+  (`fixly.applyRemediationPlan`) with a diff preview + confirmation.
 - **CLI** (`fixly`): `vibecheck` (A–F grade + top fixes), `scan` (`--json`,
   `--sarif`, `--fail-on` CI gate — malware always fails a gate), `check`
   (SAFE/CAUTION/BLOCK verdict), `guard` (pre-install check wrapped around
