@@ -1,12 +1,15 @@
 import * as vscode from "vscode";
-import type { ScanResult, Severity } from "@fixly/core";
+import { buildRemediationPlan, type ScanResult, type Severity } from "@fixly/core";
 import { scanWorkspace } from "./scanner";
 import { FixlyPanel } from "./panel";
 import { updateDiagnostics } from "./diagnostics";
 import { FixlyQuickFixProvider } from "./quickfix";
+import { applyRemediationPlanToWorkspace } from "./apply-plan";
+import { ProposedContentProvider, PREVIEW_SCHEME } from "./preview";
 
 let output: vscode.OutputChannel;
 let quickFixes: FixlyQuickFixProvider;
+let preview: ProposedContentProvider;
 let statusBar: vscode.StatusBarItem;
 let diagnostics: vscode.DiagnosticCollection;
 let lastResult: ScanResult | undefined;
@@ -22,6 +25,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   diagnostics = vscode.languages.createDiagnosticCollection("fixly");
   context.subscriptions.push(diagnostics);
+
+  preview = new ProposedContentProvider();
+  context.subscriptions.push(
+    preview,
+    vscode.workspace.registerTextDocumentContentProvider(PREVIEW_SCHEME, preview)
+  );
 
   quickFixes = new FixlyQuickFixProvider();
   context.subscriptions.push(
@@ -53,6 +62,21 @@ export function activate(context: vscode.ExtensionContext): void {
       } else {
         runScan({ revealPanel: true, quiet: false });
       }
+    }),
+    vscode.commands.registerCommand("fixly.applyRemediationPlan", async () => {
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      if (!folder) {
+        vscode.window.showWarningMessage(
+          "Fixly: open a Node.js project folder first."
+        );
+        return;
+      }
+      // Need a scan to plan from; run one if the user hasn't scanned yet.
+      if (!lastResult) await runScan({ revealPanel: false, quiet: false });
+      if (!lastResult) return; // scan failed — runScan already surfaced why
+      const log = (msg: string) =>
+        output.appendLine(`[${new Date().toISOString()}] ${msg}`);
+      await applyRemediationPlanToWorkspace(folder, lastResult, preview, log);
     }),
     // On-save scanning: saving package.json / package-lock.json re-scans
     // automatically (debounced — npm install touches both files).
@@ -118,7 +142,12 @@ function updateStatusBar(result: ScanResult): void {
       : counts.medium > 0
         ? new vscode.ThemeColor("statusBarItem.warningBackground")
         : undefined;
-  statusBar.tooltip = `Fixly — ${total} known ${total === 1 ? "vulnerability" : "vulnerabilities"} across ${result.totalPackages} packages (${result.transitivePackages} transitive scanned). Click for the full report.`;
+  const plan = buildRemediationPlan(result);
+  const forecastNote =
+    plan.actions.length > 0
+      ? ` Fix plan → ${plan.forecast.after.grade} (${plan.forecast.after.score}).`
+      : "";
+  statusBar.tooltip = `Fixly — ${total} known ${total === 1 ? "vulnerability" : "vulnerabilities"} across ${result.totalPackages} packages (${result.transitivePackages} transitive scanned). Click for the full report.${forecastNote}`;
 }
 
 async function runScan(opts: { revealPanel: boolean; quiet: boolean }): Promise<void> {

@@ -2,8 +2,8 @@
 // any `vscode` import so it's unit-testable in a plain Node/vitest environment
 // (the vscode-dependent panel wiring lives in panel.ts).
 
-import { computeGrade, type Grade, type ScanGrade } from "@fixly/core";
-import type { ScanResult, ScanVulnerability, Severity } from "@fixly/core";
+import { buildRemediationPlan, computeGrade, type Grade, type ScanGrade } from "@fixly/core";
+import type { RemediationPlan, ScanResult, ScanVulnerability, Severity } from "@fixly/core";
 
 // Same grade palette as the web ScoreCard (emerald/cyan/yellow/orange/red 400s).
 const GRADE_COLORS: Record<Grade, string> = {
@@ -118,9 +118,22 @@ function scoreHtml(grade: ScanGrade): string {
   </div>`;
 }
 
+/** Grade Forecast line + Apply button; empty when nothing is fixable. */
+function forecastHtml(plan: RemediationPlan): string {
+  if (plan.actions.length === 0) return "";
+  const { after, pointsRecovered } = plan.forecast;
+  const color = GRADE_COLORS[after.grade];
+  const points = pointsRecovered > 0 ? `, +${pointsRecovered} points` : "";
+  return `<div class="forecast">
+    <span class="forecast-text">Apply the fix plan → <span class="forecast-grade" style="color:${color}">${after.grade} (${after.score})</span>${points}</span>
+    <button id="apply">Apply Fix Plan</button>
+  </div>`;
+}
+
 export function renderHtml(result: ScanResult, nonce: string): string {
   const counts = severityCounts(result);
   const grade = computeGrade(result);
+  const plan = buildRemediationPlan(result);
 
   const warningsHtml =
     result.warnings.length > 0 || result.error
@@ -173,6 +186,9 @@ export function renderHtml(result: ScanResult, nonce: string): string {
   .fixes-title { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
   .fixes ul { margin: 0; padding-left: 16px; }
   .fixes li { font-size: 12px; margin: 4px 0; }
+  .forecast { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #1A1A1A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 10px 16px; margin: 0 0 16px; }
+  .forecast-text { font-size: 12px; color: #BFC3C7; }
+  .forecast-grade { font-weight: 700; }
   .cmd { color: #34d399; background: #0A0A0A; border-radius: 4px; padding: 2px 6px; margin-top: 2px; width: fit-content; font-size: 11px; }
   .warnings { background: rgba(120,90,0,0.12); border: 1px solid rgba(180,140,0,0.4); border-radius: 10px; padding: 12px 14px; margin: 16px 0; }
   .warnings-title { font-size: 11px; font-weight: 600; color: #f4c150; margin-bottom: 6px; }
@@ -208,6 +224,7 @@ export function renderHtml(result: ScanResult, nonce: string): string {
   </div>
 
   ${scoreHtml(grade)}
+  ${forecastHtml(plan)}
 
   <div class="cards">
     ${cardHtml("Packages", result.totalPackages)}
@@ -223,6 +240,7 @@ export function renderHtml(result: ScanResult, nonce: string): string {
     document.getElementById("rescan").addEventListener("click", () => vscodeApi.postMessage({ type: "rescan" }));
     document.getElementById("copy").addEventListener("click", () => vscodeApi.postMessage({ type: "copySummary" }));
     document.getElementById("export").addEventListener("click", () => vscodeApi.postMessage({ type: "exportJson" }));
+    document.getElementById("apply")?.addEventListener("click", () => vscodeApi.postMessage({ type: "applyPlan" }));
   </script>
 </body>
 </html>`;

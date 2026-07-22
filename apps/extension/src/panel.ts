@@ -74,6 +74,9 @@ export class FixlyPanel {
       case "rescan":
         this.onRescan();
         break;
+      case "applyPlan":
+        await vscode.commands.executeCommand("fixly.applyRemediationPlan");
+        break;
       case "copySummary":
         await vscode.env.clipboard.writeText(buildSummaryText(this.result));
         vscode.window.showInformationMessage("Fixly: summary copied to clipboard.");

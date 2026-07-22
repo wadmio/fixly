@@ -20,6 +20,10 @@
       {
         "command": "fixly.showReport",
         "title": "Fixly: Show Last Report"
+      },
+      {
+        "command": "fixly.applyRemediationPlan",
+        "title": "Fixly: Apply Remediation Plan"
       }
     ],
     "configuration": {
