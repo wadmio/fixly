@@ -43,6 +43,11 @@
           "type": "boolean",
           "default": true,
           "description": "Also scan transitive dependencies discovered in the package-lock.json tree."
+        },
+        "fixly.nvdApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional [NVD API key](https://nvd.nist.gov/developers/request-an-api-key). NVD's public rate limit (5 requests / 30s) means only a few CVEs are cross-referenced per scan; a key raises the limit so more findings get NVD's independent CVSS score. Leave blank to use an `NVD_API_KEY` environment variable instead."
         }
       }
     }

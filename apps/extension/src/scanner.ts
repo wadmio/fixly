@@ -5,6 +5,11 @@ export type ScanOutcome =
   | { ok: true; result: ScanResult }
   | { ok: false; error: string };
 
+/** Mask an API key for logging — reveal only the last 4 chars, never the rest. */
+function maskKey(key: string): string {
+  return key.length <= 4 ? "****" : `****${key.slice(-4)}`;
+}
+
 async function readJson(
   uri: vscode.Uri,
   log: (msg: string) => void
@@ -81,6 +86,16 @@ export async function scanWorkspace(
 
   const config = vscode.workspace.getConfiguration("fixly");
   const includeTransitive = config.get<boolean>("includeTransitive", true);
+
+  // Feed an NVD API key from settings to core the same way NVD_API_KEY does:
+  // core's enrichWithNvd reads process.env.NVD_API_KEY at scan time and we run
+  // it in this same process. Only set it when non-empty so a shell-exported
+  // NVD_API_KEY still works when the setting is blank. Key is masked in logs.
+  const nvdApiKey = config.get<string>("nvdApiKey", "").trim();
+  if (nvdApiKey) {
+    process.env.NVD_API_KEY = nvdApiKey;
+    log(`Using NVD API key from settings (${maskKey(nvdApiKey)}) — raises NVD rate limits.`);
+  }
 
   log("Querying OSV…");
   const result = await scanProjectFiles({
