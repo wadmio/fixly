@@ -74,6 +74,65 @@ describe("buildRemediationPlan", () => {
     expect(plan.actions[2].command).toBe("npm install direct-pkg@2.0.0");
   });
 
+  it("a transitive malware advisory with a fix is pinned via overrides, not left to manual removal", () => {
+    // fsevents <1.2.11 (MAL-2023-462) is a legit package caught in a past
+    // incident with a published fix — you can't uninstall a transitive dep, so
+    // the actionable remediation is an override to the fixed version.
+    const plan = buildRemediationPlan(
+      result([
+        vuln({
+          severity: "critical",
+          package: "fsevents",
+          dependencyType: "transitive",
+          malicious: true,
+          osvId: "MAL-2023-462",
+          fixedVersion: "1.2.11",
+        }),
+      ])
+    );
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0].kind).toBe("override");
+    expect(plan.actions[0].targetVersion).toBe("1.2.11");
+    expect(plan.actions[0].command).toBe(
+      "npm pkg set overrides.fsevents=1.2.11 && npm install"
+    );
+    expect(plan.unfixable).toEqual([]);
+  });
+
+  it("a transitive malware advisory with NO fix still requires manual removal", () => {
+    const plan = buildRemediationPlan(
+      result([
+        vuln({
+          severity: "critical",
+          package: "evil-transitive",
+          dependencyType: "transitive",
+          malicious: true,
+          osvId: "MAL-9",
+          fixedVersion: null,
+        }),
+      ])
+    );
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0].kind).toBe("remove");
+  });
+
+  it("a DIRECT malware advisory is removed even when it has a fix", () => {
+    const plan = buildRemediationPlan(
+      result([
+        vuln({
+          severity: "low",
+          package: "evil-direct",
+          malicious: true,
+          osvId: "MAL-7",
+          fixedVersion: "2.0.0",
+        }),
+      ])
+    );
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0].kind).toBe("remove");
+    expect(plan.actions[0].command).toBe("npm uninstall evil-direct");
+  });
+
   it("one bump per package clears every finding at the highest fixed version", () => {
     const plan = buildRemediationPlan(
       result([

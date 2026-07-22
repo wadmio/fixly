@@ -69,17 +69,32 @@ function maxVersion(a: string | null, b: string): string {
   return cmp !== null && cmp >= 0 ? a : b;
 }
 
+/**
+ * A malicious package must be REMOVED (not upgraded) when it is declared
+ * directly — you can `npm uninstall` it — or when it has no published fix, so
+ * there is nothing safe to move to. The one exception is a **transitive**
+ * malicious package that DOES have a fixed release (e.g. fsevents <1.2.11): you
+ * cannot uninstall a dependency you did not declare, so the only actionable,
+ * safe remediation is to pin the whole tree to the fixed version via
+ * `overrides`. Non-malicious findings are never "remove".
+ */
+function mustRemovePackage(vulns: ScanVulnerability[]): boolean {
+  if (!vulns.some((v) => v.malicious)) return false;
+  const isTransitive = vulns[0].dependencyType === "transitive";
+  const hasUnfixedMalware = vulns.some((v) => v.malicious && v.fixedVersion === null);
+  return !isTransitive || hasUnfixedMalware;
+}
+
 function buildAction(
   vulns: ScanVulnerability[],
   points: number
 ): RemediationAction {
   const first = vulns[0];
-  const malicious = vulns.some((v) => v.malicious);
   const worst = vulns.reduce((a, b) => (findingPenalty(b) > findingPenalty(a) ? b : a));
   const resolves = vulns.map((v) => v.osvId);
   const n = resolves.length;
 
-  if (malicious) {
+  if (mustRemovePackage(vulns)) {
     return {
       kind: "remove",
       package: first.package,
@@ -103,11 +118,13 @@ function buildAction(
   // Callers only build upgrade/override actions for packages with a fix.
   const targetVersion = target as string;
 
-  const why = worst.knownExploited
-    ? `${worst.cveId ?? worst.osvId} is exploited in the wild (CISA KEV)`
-    : worst.pocCount !== null && worst.pocCount > 0
-      ? `${worst.cveId ?? worst.osvId} has public exploit PoCs`
-      : `${worst.cveId ?? worst.osvId} (${worst.severity})`;
+  const why = worst.malicious
+    ? `${worst.cveId ?? worst.osvId} flags malicious code — pin past it to the fixed release`
+    : worst.knownExploited
+      ? `${worst.cveId ?? worst.osvId} is exploited in the wild (CISA KEV)`
+      : worst.pocCount !== null && worst.pocCount > 0
+        ? `${worst.cveId ?? worst.osvId} has public exploit PoCs`
+        : `${worst.cveId ?? worst.osvId} (${worst.severity})`;
   const clears = n === 1 ? `clears 1 finding` : `clears ${n} findings`;
 
   if (first.dependencyType === "transitive") {
@@ -138,8 +155,9 @@ function buildAction(
 
 /**
  * Build the remediation plan for a completed scan: one action per vulnerable
- * package@version (malware → remove; direct → upgrade; transitive → override),
- * plus the Grade Forecast for applying all of them. Deterministic.
+ * package@version (malware → remove, unless it's transitive with a published
+ * fix → override; direct → upgrade; transitive → override), plus the Grade
+ * Forecast for applying all of them. Deterministic.
  */
 export function buildRemediationPlan(result: ScanResult): RemediationPlan {
   const byPackage = new Map<string, ScanVulnerability[]>();
@@ -155,11 +173,12 @@ export function buildRemediationPlan(result: ScanResult): RemediationPlan {
   const remaining: ScanVulnerability[] = [];
 
   for (const vulns of byPackage.values()) {
-    const malicious = vulns.some((v) => v.malicious);
-    // Removal clears everything for the package; upgrades clear only findings
-    // with a published fixed release.
-    const fixed = malicious ? vulns : vulns.filter((v) => v.fixedVersion !== null);
-    const leftover = malicious ? [] : vulns.filter((v) => v.fixedVersion === null);
+    const remove = mustRemovePackage(vulns);
+    // Removal clears everything for the package; upgrades/overrides clear only
+    // findings with a published fixed release (this includes a transitive
+    // malware advisory that has a fix — pinned via overrides, not removed).
+    const fixed = remove ? vulns : vulns.filter((v) => v.fixedVersion !== null);
+    const leftover = remove ? [] : vulns.filter((v) => v.fixedVersion === null);
 
     if (fixed.length > 0) {
       const points = fixed.reduce((sum, v) => sum + findingPenalty(v), 0);
