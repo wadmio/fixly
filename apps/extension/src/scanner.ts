@@ -19,12 +19,20 @@ async function readJson(
   }
 }
 
+export interface ScanWorkspaceOptions {
+  /** Unsaved package.json text (e.g. from an open, dirty editor). When set it
+   *  is parsed instead of reading package.json from disk, so as-you-type scans
+   *  reflect the buffer; package-lock.json is still read from disk (saved). */
+  packageJsonText?: string;
+}
+
 /**
  * Scan the first open workspace folder: read its package.json /
  * package-lock.json and run the shared @fixly/core pipeline against OSV.
  */
 export async function scanWorkspace(
-  log: (msg: string) => void
+  log: (msg: string) => void,
+  opts: ScanWorkspaceOptions = {}
 ): Promise<ScanOutcome> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
@@ -34,10 +42,23 @@ export async function scanWorkspace(
     };
   }
 
-  const packageJson = await readJson(
-    vscode.Uri.joinPath(folder.uri, "package.json"),
-    log
-  );
+  let packageJson: unknown | null;
+  if (opts.packageJsonText !== undefined) {
+    try {
+      packageJson = JSON.parse(opts.packageJsonText);
+    } catch {
+      // Mid-edit the buffer is often not valid JSON yet — skip quietly.
+      return {
+        ok: false,
+        error: "package.json is not valid JSON yet — skipping scan.",
+      };
+    }
+  } else {
+    packageJson = await readJson(
+      vscode.Uri.joinPath(folder.uri, "package.json"),
+      log
+    );
+  }
   if (!packageJson) {
     return {
       ok: false,

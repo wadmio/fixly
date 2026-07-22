@@ -6,6 +6,14 @@ import { updateDiagnostics } from "./diagnostics";
 import { FixlyQuickFixProvider } from "./quickfix";
 import { applyRemediationPlanToWorkspace } from "./apply-plan";
 import { ProposedContentProvider, PREVIEW_SCHEME } from "./preview";
+import { debounce, type Debounced } from "./debounce";
+
+interface RunScanOpts {
+  revealPanel: boolean;
+  quiet: boolean;
+  /** Unsaved package.json text for as-you-type scans (see scanner.ts). */
+  packageJsonText?: string;
+}
 
 let output: vscode.OutputChannel;
 let quickFixes: FixlyQuickFixProvider;
@@ -14,10 +22,19 @@ let statusBar: vscode.StatusBarItem;
 let diagnostics: vscode.DiagnosticCollection;
 let lastResult: ScanResult | undefined;
 let scanning = false;
+// The freshest request that arrived while a scan was in flight; run when it
+// finishes so the latest text always wins and stale results are dropped.
+let pendingScan: RunScanOpts | null = null;
 let saveDebounce: ReturnType<typeof setTimeout> | undefined;
+let typeDebounce: Debounced<[string]> | undefined;
 
 const MANIFEST_FILES = new Set(["package.json", "package-lock.json"]);
 const SAVE_DEBOUNCE_MS = 1_200;
+const TYPE_DEBOUNCE_MS = 1_500;
+
+function basename(fsPath: string): string {
+  return fsPath.split(/[\\/]/).pop() ?? "";
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel("Fixly");
@@ -81,7 +98,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // On-save scanning: saving package.json / package-lock.json re-scans
     // automatically (debounced — npm install touches both files).
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (!MANIFEST_FILES.has(doc.fileName.split(/[\\/]/).pop() ?? "")) return;
+      if (!MANIFEST_FILES.has(basename(doc.fileName))) return;
       const config = vscode.workspace.getConfiguration("fixly");
       if (!config.get<boolean>("scanOnSave", true)) return;
       const folder = vscode.workspace.workspaceFolders?.[0];
@@ -90,10 +107,29 @@ export function activate(context: vscode.ExtensionContext): void {
       if (saveDebounce) clearTimeout(saveDebounce);
       saveDebounce = setTimeout(() => {
         output.appendLine(
-          `[${new Date().toISOString()}] ${doc.fileName.split(/[\\/]/).pop()} saved — rescanning…`
+          `[${new Date().toISOString()}] ${basename(doc.fileName)} saved — rescanning…`
         );
         runScan({ revealPanel: false, quiet: true });
       }, SAVE_DEBOUNCE_MS);
+    }),
+    // As-you-type scanning (opt-in, fixly.scanOnType): re-scan on edits to
+    // package.json using the unsaved buffer text — no save required. Debounced,
+    // and the coalescing in runScan drops stale results from rapid typing.
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      const doc = event.document;
+      if (basename(doc.fileName) !== "package.json") return;
+      const config = vscode.workspace.getConfiguration("fixly");
+      if (!config.get<boolean>("scanOnType", false)) return;
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      if (!folder || !doc.uri.fsPath.startsWith(folder.uri.fsPath)) return;
+
+      typeDebounce ??= debounce((text: string) => {
+        output.appendLine(
+          `[${new Date().toISOString()}] package.json edited — rescanning (unsaved buffer)…`
+        );
+        runScan({ revealPanel: false, quiet: true, packageJsonText: text });
+      }, TYPE_DEBOUNCE_MS);
+      typeDebounce(doc.getText());
     })
   );
 }
@@ -150,8 +186,14 @@ function updateStatusBar(result: ScanResult): void {
   statusBar.tooltip = `Fixly — ${total} known ${total === 1 ? "vulnerability" : "vulnerabilities"} across ${result.totalPackages} packages (${result.transitivePackages} transitive scanned). Click for the full report.${forecastNote}`;
 }
 
-async function runScan(opts: { revealPanel: boolean; quiet: boolean }): Promise<void> {
-  if (scanning) return; // a scan is already in flight — the newest state wins anyway
+async function runScan(opts: RunScanOpts): Promise<void> {
+  if (scanning) {
+    // Coalesce: a scan is running — remember the freshest request and run it
+    // when the current one finishes, so the latest text wins and no trigger is
+    // silently dropped.
+    pendingScan = opts;
+    return;
+  }
   scanning = true;
 
   const log = (msg: string) => output.appendLine(`[${new Date().toISOString()}] ${msg}`);
@@ -171,7 +213,15 @@ async function runScan(opts: { revealPanel: boolean; quiet: boolean }): Promise<
     },
     async () => {
       try {
-        const outcome = await scanWorkspace(log);
+        const outcome = await scanWorkspace(log, {
+          packageJsonText: opts.packageJsonText,
+        });
+        // A newer edit arrived mid-scan — this result is already stale; skip
+        // applying it and let the queued rescan produce the current state.
+        if (pendingScan) {
+          log("Newer change pending — discarding stale scan result.");
+          return;
+        }
         if (!outcome.ok) {
           log(`Error: ${outcome.error}`);
           statusBar.text = "$(shield) Fixly";
@@ -213,8 +263,16 @@ async function runScan(opts: { revealPanel: boolean; quiet: boolean }): Promise<
       }
     }
   );
+
+  // Run the freshest request that arrived while this scan was in flight.
+  if (pendingScan) {
+    const next = pendingScan;
+    pendingScan = null;
+    void runScan(next);
+  }
 }
 
 export function deactivate(): void {
   if (saveDebounce) clearTimeout(saveDebounce);
+  typeDebounce?.cancel();
 }

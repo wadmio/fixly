@@ -34,6 +34,11 @@
           "default": true,
           "description": "Automatically rescan when package.json or package-lock.json is saved."
         },
+        "fixly.scanOnType": {
+          "type": "boolean",
+          "default": false,
+          "description": "Rescan as you type in package.json, using the unsaved editor contents (debounced). The saved package-lock.json is still used for the dependency tree."
+        },
         "fixly.includeTransitive": {
           "type": "boolean",
           "default": true,
