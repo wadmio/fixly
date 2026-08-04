@@ -138,7 +138,17 @@ export async function fetchProject(
       message: `Repository ${owner}/${repo} was not found. Check the URL — it may not exist, or it may be private (only public repositories are supported).`,
     };
   }
-  if (repoRes.status === 401 || repoRes.status === 403) {
+  if (repoRes.status === 401) {
+    // Unauthenticated requests can't 401 — this is always a bad configured
+    // token, a server problem, not a private repo. Don't mislead the user.
+    return {
+      ok: false,
+      code: "github_error",
+      message:
+        "GitHub rejected the configured GITHUB_TOKEN (bad credentials — it may be expired or revoked). Replace or remove the token on the server, then try again.",
+    };
+  }
+  if (repoRes.status === 403) {
     return {
       ok: false,
       code: "private_repo",

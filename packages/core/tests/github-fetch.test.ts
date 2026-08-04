@@ -23,6 +23,13 @@ describe("fetchProject — structured error codes", () => {
     expect(await fetchProject("o", "r")).toMatchObject({ ok: false, code: "private_repo" });
   });
 
+  it("github_error naming the token on 401 (bad GITHUB_TOKEN, not a private repo)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonRes(401, { message: "Bad credentials" })));
+    const r = await fetchProject("o", "r");
+    expect(r).toMatchObject({ ok: false, code: "github_error" });
+    if (!r.ok) expect(r.message).toContain("GITHUB_TOKEN");
+  });
+
   it("rate_limited on 403 with a rate-limit message", async () => {
     vi.stubGlobal(
       "fetch",
