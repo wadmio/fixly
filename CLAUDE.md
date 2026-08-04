@@ -128,4 +128,4 @@ Public API in [packages/core/src/index.ts](packages/core/src/index.ts). Pipeline
 - **NVD never detects** — it only enriches OSV findings that have a CVE, capped by NVD's public rate limits (coverage always stated in a warning). Partial NVD coverage is expected, not a failure.
 - A vuln with no CVSS v3 vector and no `database_specific.severity` correctly resolves to `"unknown"`.
 - Scan history is **browser localStorage only** — keep it that way. No auth, no Supabase/server persistence, no fake data.
-- Keep it tight (student capstone). No marketplace packaging for the extension, no CI/CD gating, no auto-fixing.
+- Keep it tight (student capstone). The extension is the one packaged surface: it ships to the VS Code Marketplace as `fixly.fixly-vscode` (`pnpm --filter fixly-vscode package:vsix`, published with `vsce publish` under the `fixly` publisher). Still no CI/CD gating, and nothing is ever fixed or installed without an explicit user action (diff preview + confirm to edit package.json; `npm install` only runs from the user clicking "Run npm install").

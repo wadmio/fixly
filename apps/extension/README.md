@@ -87,13 +87,22 @@ to the **Fixly** output channel.
 ## Develop
 
 ```bash
-pnpm --filter fixly-vscode build      # bundle to dist/extension.js (esbuild)
+pnpm --filter fixly-vscode build         # bundle to dist/extension.js (esbuild)
 pnpm --filter fixly-vscode typecheck
+pnpm --filter fixly-vscode package:vsix  # build + package fixly-vscode-<version>.vsix
 ```
 
-Then press <kbd>F5</kbd> in VS Code (Extension Development Host) to run it.
+Then press <kbd>F5</kbd> in VS Code (Extension Development Host) to run it, or
+install the packaged build with "Extensions: Install from VSIX". To ship a
+release, bump `version` in package.json, package, and publish (needs the
+`fixly` publisher's Marketplace PAT):
 
-## Scope (prototype)
+```bash
+npx vsce publish --packagePath fixly-vscode-<version>.vsix
+```
 
-No marketplace packaging, no auth, npm only — same scope as the rest of Fixly.
-Transitive scanning requires a `package-lock.json` in the workspace.
+## Scope
+
+Published to the VS Code Marketplace as `fixly.fixly-vscode`. No auth, npm
+only — same scope as the rest of Fixly. Transitive scanning requires a
+`package-lock.json` in the workspace.
