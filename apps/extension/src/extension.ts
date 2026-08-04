@@ -96,21 +96,14 @@ export function activate(context: vscode.ExtensionContext): void {
       await applyRemediationPlanToWorkspace(folder, lastResult, preview, log);
     }),
     // On-save scanning: saving package.json / package-lock.json re-scans
-    // automatically (debounced — npm install touches both files).
+    // automatically. Disk writes that bypass the editor (npm install rewriting
+    // the lock file) are caught by the manifest watcher below; both funnel
+    // into the same debounced rescan so overlapping triggers scan once.
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (!MANIFEST_FILES.has(basename(doc.fileName))) return;
-      const config = vscode.workspace.getConfiguration("fixly");
-      if (!config.get<boolean>("scanOnSave", true)) return;
       const folder = vscode.workspace.workspaceFolders?.[0];
       if (!folder || !doc.uri.fsPath.startsWith(folder.uri.fsPath)) return;
-
-      if (saveDebounce) clearTimeout(saveDebounce);
-      saveDebounce = setTimeout(() => {
-        output.appendLine(
-          `[${new Date().toISOString()}] ${basename(doc.fileName)} saved — rescanning…`
-        );
-        runScan({ revealPanel: false, quiet: true });
-      }, SAVE_DEBOUNCE_MS);
+      scheduleRescan(`${basename(doc.fileName)} saved`);
     }),
     // As-you-type scanning (opt-in, fixly.scanOnType): re-scan on edits to
     // package.json using the unsaved buffer text — no save required. Debounced,
@@ -132,6 +125,41 @@ export function activate(context: vscode.ExtensionContext): void {
       typeDebounce(doc.getText());
     })
   );
+
+  // Manifest watcher: catches writes that never pass through the editor —
+  // chiefly npm install rewriting package-lock.json — so the apply-fixes →
+  // install → rescan loop closes without a manual rescan. The pattern is
+  // deliberately non-recursive: only the workspace-root manifests, never the
+  // thousands of package.json files npm writes under node_modules.
+  const rootFolder = vscode.workspace.workspaceFolders?.[0];
+  if (rootFolder) {
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(rootFolder, "{package.json,package-lock.json}")
+    );
+    const onDiskChange = (uri: vscode.Uri) =>
+      scheduleRescan(`${basename(uri.fsPath)} changed on disk`);
+    context.subscriptions.push(
+      watcher,
+      watcher.onDidChange(onDiskChange),
+      watcher.onDidCreate(onDiskChange)
+    );
+  }
+}
+
+/**
+ * Debounced quiet rescan shared by the on-save listener and the manifest
+ * watcher (an editor save fires both; npm install fires the watcher several
+ * times) — one timer means any burst of triggers scans once. Honors the
+ * fixly.scanOnSave setting, which gates all automatic rescans.
+ */
+function scheduleRescan(reason: string): void {
+  const config = vscode.workspace.getConfiguration("fixly");
+  if (!config.get<boolean>("scanOnSave", true)) return;
+  if (saveDebounce) clearTimeout(saveDebounce);
+  saveDebounce = setTimeout(() => {
+    output.appendLine(`[${new Date().toISOString()}] ${reason} — rescanning…`);
+    runScan({ revealPanel: false, quiet: true });
+  }, SAVE_DEBOUNCE_MS);
 }
 
 function severityCounts(result: ScanResult): Record<Severity, number> {

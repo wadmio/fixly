@@ -16,9 +16,12 @@ scanner (OSV detection + NVD CVE cross-referencing).
   style) and transitive `overrides`. It first opens a side-by-side **diff
   preview** of the proposed `package.json` and asks to confirm — nothing is
   written until you click **Apply**. Malicious packages are never auto-edited;
-  it lists the `npm uninstall` commands to run by hand. No installs are run and
-  `node_modules` is untouched — finish with `npm install`. Also triggered by the
-  **Apply Fix Plan** button in the report.
+  it lists the `npm uninstall` commands to run by hand. Fixly never starts an
+  install unprompted — the completion toast offers a **Run npm install** button
+  that runs it in a visible integrated terminal, and once npm rewrites
+  `package-lock.json` the manifest watcher rescans automatically, closing the
+  apply → install → verify loop in-editor. Also triggered by the **Apply Fix
+  Plan** button in the report.
 
 ## In-editor feedback
 
@@ -32,9 +35,10 @@ scanner (OSV detection + NVD CVE cross-referencing).
   `Fixly: 2C 5H 3M`), red background when critical/high findings exist,
   `Fixly: clean` when there are none. The tooltip shows the **Grade Forecast** —
   the grade you'd reach by applying the fix plan. Click to open the report.
-- **Scan on save** — saving `package.json` or `package-lock.json` triggers an
-  automatic, quiet rescan (1.2s debounce, so `npm install` touching both files
-  scans once). Toggle with `fixly.scanOnSave`.
+- **Scan on change** — saving `package.json` / `package-lock.json` in the
+  editor **or** an external write to them (npm rewriting the lock file during
+  `npm install`) triggers an automatic, quiet rescan (shared 1.2s debounce, so
+  a burst of writes scans once). Toggle with `fixly.scanOnSave`.
 - **Scan as you type** (opt-in) — with `fixly.scanOnType` enabled, editing
   `package.json` rescans from the **unsaved** editor buffer (1.5s debounce), no
   save required; the saved `package-lock.json` still supplies the tree.
@@ -43,7 +47,7 @@ scanner (OSV detection + NVD CVE cross-referencing).
 
 | Setting | Default | Effect |
 |---|---|---|
-| `fixly.scanOnSave` | `true` | Rescan automatically when `package.json` / `package-lock.json` is saved. |
+| `fixly.scanOnSave` | `true` | Rescan automatically when `package.json` / `package-lock.json` changes (editor saves and external writes, e.g. `npm install`). |
 | `fixly.scanOnType` | `false` | Rescan as you type in `package.json`, from the unsaved buffer (debounced). |
 | `fixly.includeTransitive` | `true` | Walk the `package-lock.json` tree for transitive packages. |
 | `fixly.nvdApiKey` | `""` | NVD API key to widen CVE cross-referencing (see [NVD API key](#nvd-api-key-optional)). |

@@ -15,9 +15,10 @@ import type { ProposedContentProvider } from "./preview";
 // exactly. Before anything is written the proposed package.json is shown in a
 // side-by-side diff and gated behind a modal confirmation. Malware "remove"
 // actions are NEVER applied to files — they surface as a warning listing the
-// npm uninstall commands to run by hand. No installs are run and node_modules
-// is never touched; the user realizes the fixes with `npm install`, which (on
-// save) triggers the on-save rescan.
+// npm uninstall commands to run by hand. Fixly never runs an install on its
+// own: the completion toast offers a "Run npm install" button that launches it
+// in a visible integrated terminal (still one explicit click), and the
+// manifest watcher in extension.ts rescans once npm rewrites the lock file.
 
 /**
  * Apply the remediation plan for a completed scan to the workspace
@@ -107,9 +108,20 @@ export async function applyRemediationPlanToWorkspace(
           await vscode.workspace.applyEdit(edit);
           await fresh.save();
           for (const c of applied.changes) log(`Applied: ${c}`);
-          vscode.window.showInformationMessage(
-            `Fixly: updated package.json (${n} ${n === 1 ? "change" : "changes"}). Run "npm install" to realize the fixes, then rescan.`
-          );
+          // Not awaited: a non-modal toast's promise stays pending until the
+          // user interacts, and the malware-removal warning below must not
+          // wait on it.
+          void vscode.window
+            .showInformationMessage(
+              `Fixly: updated package.json (${n} ${n === 1 ? "change" : "changes"}). Run "npm install" to realize the fixes — Fixly rescans automatically once the lock file updates.`,
+              "Run npm install"
+            )
+            .then((choice) => {
+              if (choice === "Run npm install") {
+                log("Launching npm install in the Fixly terminal…");
+                runNpmInstallInTerminal(folder);
+              }
+            });
         }
       } else {
         log("Remediation plan preview cancelled — package.json unchanged.");
@@ -121,6 +133,23 @@ export async function applyRemediationPlanToWorkspace(
     await warnAboutRemovals(removals);
     for (const r of removals) log(`Malware — remove by hand: ${r.command}`);
   }
+}
+
+const TERMINAL_NAME = "Fixly";
+
+/**
+ * Run `npm install` in a visible integrated terminal, reusing the Fixly
+ * terminal if its shell is still alive. Only ever called from an explicit
+ * button click — Fixly never starts an install unprompted.
+ */
+function runNpmInstallInTerminal(folder: vscode.WorkspaceFolder): void {
+  const existing = vscode.window.terminals.find(
+    (t) => t.name === TERMINAL_NAME && t.exitStatus === undefined
+  );
+  const terminal =
+    existing ?? vscode.window.createTerminal({ name: TERMINAL_NAME, cwd: folder.uri });
+  terminal.show();
+  terminal.sendText("npm install");
 }
 
 /** Malware is never auto-removed: surface the uninstall commands to run. */

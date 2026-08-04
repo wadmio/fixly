@@ -2,7 +2,7 @@
   "name": "fixly-vscode",
   "displayName": "Fixly",
   "description": "Scan your project's npm dependencies for known vulnerabilities (OSV).",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "fixly",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -42,7 +42,7 @@
         "fixly.scanOnSave": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically rescan when package.json or package-lock.json is saved."
+          "description": "Automatically rescan when package.json or package-lock.json changes — editor saves and external writes alike (e.g. npm install updating the lock file)."
         },
         "fixly.scanOnType": {
           "type": "boolean",
