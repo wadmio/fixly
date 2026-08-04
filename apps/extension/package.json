@@ -2,9 +2,19 @@
   "name": "fixly-vscode",
   "displayName": "Fixly",
   "description": "Scan your project's npm dependencies for known vulnerabilities (OSV).",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.2",
   "publisher": "fixly",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0A0A0A",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wadmio/fixly.git",
+    "directory": "apps/extension"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -54,6 +64,7 @@
   },
   "scripts": {
     "build": "node esbuild.mjs",
+    "package:vsix": "node esbuild.mjs && vsce package --no-dependencies",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -63,6 +74,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
+    "@vscode/vsce": "^3.6.0",
     "@types/vscode": "^1.90.0",
     "esbuild": "^0.25.0",
     "eslint": "^9.39.1",
