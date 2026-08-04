@@ -1,50 +1,105 @@
-// The Fixly Score — the report's headline. One glanceable grade, the honest
-// headline, and the fixes that recover the most points. Server component:
-// everything is computed by @fixly/core's computeGrade.
+// The Fixly Score — the report's hero. Same treatment as the VS Code
+// extension's webview, elevated: an SVG progress ring filled to the score
+// with a soft grade-colored glow, the grade letter inside, the headline, a
+// one-line Grade Forecast, and the fixes that recover the most points (each
+// with a one-click copy). Server component: everything is computed by
+// @fixly/core's computeGrade / buildRemediationPlan.
 
-import type { ScanGrade, Grade } from "@fixly/core";
+import type { RemediationPlan, ScanGrade } from "@fixly/core";
+import CopyButton from "@/components/CopyButton";
+import { GRADE_HEX, GRADE_TEXT } from "@/lib/grade";
 
-const GRADE_STYLES: Record<Grade, { text: string; border: string; bg: string }> = {
-  A: { text: "text-emerald-400", border: "border-emerald-900/60", bg: "bg-emerald-950/20" },
-  B: { text: "text-cyan-400", border: "border-cyan-900/60", bg: "bg-cyan-950/20" },
-  C: { text: "text-yellow-400", border: "border-yellow-900/60", bg: "bg-yellow-950/20" },
-  D: { text: "text-orange-400", border: "border-orange-900/60", bg: "bg-orange-950/20" },
-  F: { text: "text-red-400", border: "border-red-900/60", bg: "bg-red-950/20" },
-};
+// Ring geometry: r=36 → circumference ≈ 226.2 (matches the extension);
+// rendered at 112px for presence.
+const RING_C = 226.2;
 
-export default function ScoreCard({ grade }: { grade: ScanGrade }) {
-  const styles = GRADE_STYLES[grade.grade];
+export default function ScoreCard({
+  grade,
+  plan,
+}: {
+  grade: ScanGrade;
+  plan?: RemediationPlan;
+}) {
+  const hex = GRADE_HEX[grade.grade];
+  const dash = (Math.max(0, Math.min(100, grade.score)) / 100) * RING_C;
+  const forecast = plan && plan.actions.length > 0 ? plan.forecast : null;
 
   return (
-    <div className={`rounded-xl border ${styles.border} ${styles.bg} p-6`}>
-      <div className="flex items-start gap-5">
-        {/* The letter */}
+    <div className="panel relative overflow-hidden p-7">
+      {/* Grade-colored ambient glow behind the ring. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -left-16 -top-16 h-64 w-64 rounded-full opacity-[0.13] blur-3xl"
+        style={{ background: hex }}
+      />
+
+      <div className="relative flex items-start gap-7">
+        {/* Score ring */}
         <div
-          className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border ${styles.border} bg-[#0A0A0A]`}
+          className="relative h-28 w-28 shrink-0"
+          role="img"
+          aria-label={`Fixly Score ${grade.grade}, ${grade.score} out of 100`}
         >
-          <span className={`text-5xl font-bold ${styles.text}`}>{grade.grade}</span>
+          <svg className="h-28 w-28" viewBox="0 0 84 84" aria-hidden="true">
+            <circle cx="42" cy="42" r="36" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="4.5" />
+            <circle
+              cx="42"
+              cy="42"
+              r="36"
+              fill="none"
+              stroke={hex}
+              strokeWidth="4.5"
+              strokeLinecap="round"
+              strokeDasharray={`${dash} ${RING_C}`}
+              transform="rotate(-90 42 42)"
+              className="animate-ring-fill"
+            />
+          </svg>
+          <span
+            className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-4xl font-bold tracking-tight ${GRADE_TEXT[grade.grade]}`}
+          >
+            {grade.grade}
+          </span>
         </div>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <p className="text-sm font-semibold text-white">Fixly Score</p>
-            <p className="font-mono text-xs text-[#BFC3C7]/60">{grade.score}/100</p>
+        <div className="min-w-0 flex-1 pt-1">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <p className="microlabel">Fixly Score</p>
+            <p className="font-mono text-lg font-semibold tabular-nums text-white">
+              {grade.score}
+              <span className="text-xs font-normal text-[#8B8F94]">/100</span>
+            </p>
           </div>
-          <p className="mt-1 text-sm text-[#BFC3C7] leading-snug">{grade.headline}</p>
+          <p className="mt-1.5 max-w-xl text-sm text-[#C9CDD1] leading-relaxed">{grade.headline}</p>
+
+          {forecast && (
+            <p className="mt-3 border-t border-white/[0.06] pt-3 text-sm text-[#9DA2A8]">
+              Fix everything →{" "}
+              <span className={`font-mono font-semibold ${GRADE_TEXT[forecast.after.grade]}`}>
+                {forecast.after.grade} ({forecast.after.score}/100)
+              </span>
+              <span className="text-[#6E7378]">
+                {" "}· {plan!.actions.length} action{plan!.actions.length === 1 ? "" : "s"}
+              </span>
+            </p>
+          )}
 
           {grade.topFixes.length > 0 && (
             <div className="mt-4">
-              <p className="text-xs font-medium text-white">Fix these first</p>
-              <ul className="mt-1.5 space-y-1.5">
+              <p className="microlabel">Fix these first</p>
+              <ul className="mt-2 space-y-2">
                 {grade.topFixes.map((fix) => (
                   <li key={`${fix.package}@${fix.installedVersion}`} className="text-xs">
                     <span className="font-medium text-white">{fix.package}</span>
-                    <span className="font-mono text-[#BFC3C7]/60">@{fix.installedVersion}</span>{" "}
-                    <span className="text-[#BFC3C7]/70">— {fix.reason}</span>
+                    <span className="font-mono text-[#8B8F94]">@{fix.installedVersion}</span>{" "}
+                    <span className="text-[#9DA2A8]">— {fix.reason}</span>
                     {fix.command && (
-                      <code className="mt-0.5 block w-fit rounded bg-[#0A0A0A] px-2 py-1 font-mono text-[11px] text-emerald-400">
-                        $ {fix.command}
-                      </code>
+                      <span className="mt-1 flex w-fit items-center gap-1.5">
+                        <code className="rounded-md border border-white/[0.06] bg-[#0A0A0B] px-2 py-1 font-mono text-[11px] text-emerald-400">
+                          $ {fix.command}
+                        </code>
+                        <CopyButton text={fix.command} />
+                      </span>
                     )}
                   </li>
                 ))}

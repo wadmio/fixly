@@ -1,46 +1,108 @@
 "use client";
 
-// Findings table. Client component only for the direct/transitive filter —
-// all data arrives fully computed from the server scan.
+// Findings table. Client component only for the filters — all data arrives
+// fully computed from the server scan. Exploit-intel is shown as bordered
+// chips (Malware / KEV / PoC / EPSS), the same treatment as the VS Code
+// extension's report.
 
 import { useMemo, useState } from "react";
-import type { ScanVulnerability } from "@fixly/core";
+import type { ScanVulnerability, Severity } from "@fixly/core";
 import { isNewlyExploited, kevAgeDays } from "@fixly/core/kev";
 import { Badge } from "@fixly/ui";
 
 type DepFilter = "all" | "direct" | "transitive";
+type SevFilter = "all" | Severity;
 
-const FILTERS: Array<{ id: DepFilter; label: string }> = [
+const DEP_FILTERS: Array<{ id: DepFilter; label: string }> = [
   { id: "all", label: "All" },
   { id: "direct", label: "Direct" },
   { id: "transitive", label: "Transitive" },
 ];
+
+const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low", "unknown"];
+
+function IntelChips({ vuln }: { vuln: ScanVulnerability }) {
+  const chips: Array<{ key: string; text: string; cls: string; title: string }> = [];
+  if (vuln.malicious) {
+    chips.push({
+      key: "mal",
+      text: "Malware",
+      cls: "border-red-800 bg-red-950/60 text-red-400",
+      title: "OSV flags this package itself as malware — remove it; there is nothing to 'upgrade'.",
+    });
+  }
+  if (vuln.knownExploited) {
+    const age = kevAgeDays(vuln.kevDateAdded);
+    chips.push({
+      key: "kev",
+      text: isNewlyExploited(vuln.kevDateAdded) ? "KEV · new" : "KEV",
+      cls: "border-red-800/60 bg-red-950/40 text-red-400",
+      title: `Known Exploited Vulnerabilities catalog — confirmed exploitation in the wild. Top remediation priority.${age !== null ? ` Added ${age} days ago.` : ""}`,
+    });
+  }
+  if (vuln.pocCount !== null && vuln.pocCount > 0) {
+    chips.push({
+      key: "poc",
+      text: `PoC ×${vuln.pocCount}`,
+      cls: "border-orange-800/60 bg-orange-950/30 text-orange-400",
+      title: `${vuln.pocCount} public proof-of-concept exploit repo(s) for this CVE on GitHub — exploit code is publicly available.`,
+    });
+  }
+  if (vuln.epssScore !== null && vuln.epssScore >= 0.1) {
+    chips.push({
+      key: "epss",
+      text: `EPSS ${(vuln.epssScore * 100).toFixed(0)}%`,
+      cls: "border-[#D1D5DB]/20 text-[#BFC3C7]/80",
+      title: `EPSS predicts a ${(vuln.epssScore * 100).toFixed(0)}% probability this CVE is exploited within 30 days.`,
+    });
+  }
+  if (chips.length === 0) return null;
+  return (
+    <span className="mt-1.5 flex flex-wrap gap-1">
+      {chips.map((c) => (
+        <span
+          key={c.key}
+          className={`rounded border px-1.5 py-px text-[10px] font-medium whitespace-nowrap ${c.cls}`}
+          title={c.title}
+        >
+          {c.text}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 export default function ScanResultsTable({
   vulnerabilities,
 }: {
   vulnerabilities: ScanVulnerability[];
 }) {
-  const [filter, setFilter] = useState<DepFilter>("all");
+  const [depFilter, setDepFilter] = useState<DepFilter>("all");
+  const [sevFilter, setSevFilter] = useState<SevFilter>("all");
 
   const transitiveCount = useMemo(
     () => vulnerabilities.filter((v) => v.dependencyType === "transitive").length,
     [vulnerabilities]
   );
 
+  const presentSeverities = useMemo(
+    () => SEVERITY_ORDER.filter((s) => vulnerabilities.some((v) => v.severity === s)),
+    [vulnerabilities]
+  );
+
   const visible = useMemo(() => {
-    if (filter === "all") return vulnerabilities;
-    if (filter === "transitive") {
-      return vulnerabilities.filter((v) => v.dependencyType === "transitive");
-    }
-    return vulnerabilities.filter((v) => v.dependencyType !== "transitive");
-  }, [vulnerabilities, filter]);
+    let rows = vulnerabilities;
+    if (depFilter === "transitive") rows = rows.filter((v) => v.dependencyType === "transitive");
+    else if (depFilter === "direct") rows = rows.filter((v) => v.dependencyType !== "transitive");
+    if (sevFilter !== "all") rows = rows.filter((v) => v.severity === sevFilter);
+    return rows;
+  }, [vulnerabilities, depFilter, sevFilter]);
 
   if (vulnerabilities.length === 0) return null;
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-white">
           {vulnerabilities.length}{" "}
           {vulnerabilities.length === 1 ? "vulnerability" : "vulnerabilities"} found
@@ -51,55 +113,78 @@ export default function ScanResultsTable({
           )}
         </h2>
 
-        {transitiveCount > 0 && (
-          <div className="flex gap-1 rounded-lg border border-[#D1D5DB]/10 bg-[#1A1A1A] p-0.5">
-            {FILTERS.map(({ id, label }) => (
+        <div className="flex flex-wrap items-center gap-2">
+          {presentSeverities.length > 1 && (
+            <div className="flex gap-1 rounded-lg border border-white/[0.07] bg-[#111214] p-0.5" role="group" aria-label="Filter by severity">
               <button
-                key={id}
                 type="button"
-                onClick={() => setFilter(id)}
+                onClick={() => setSevFilter("all")}
+                aria-pressed={sevFilter === "all"}
                 className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                  filter === id
-                    ? "bg-white text-[#0A0A0A]"
-                    : "text-[#BFC3C7] hover:text-white"
+                  sevFilter === "all" ? "bg-white text-[#0A0A0A]" : "text-[#BFC3C7] hover:text-white"
                 }`}
               >
-                {label}
+                All
               </button>
-            ))}
-          </div>
-        )}
+              {presentSeverities.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSevFilter(sevFilter === s ? "all" : s)}
+                  aria-pressed={sevFilter === s}
+                  className={`rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors ${
+                    sevFilter === s ? "bg-white text-[#0A0A0A]" : "text-[#BFC3C7] hover:text-white"
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {transitiveCount > 0 && (
+            <div className="flex gap-1 rounded-lg border border-white/[0.07] bg-[#111214] p-0.5" role="group" aria-label="Filter by dependency type">
+              {DEP_FILTERS.map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setDepFilter(id)}
+                  aria-pressed={depFilter === id}
+                  className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    depFilter === id
+                      ? "bg-white text-[#0A0A0A]"
+                      : "text-[#BFC3C7] hover:text-white"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-[#D1D5DB]/10 bg-[#1A1A1A]">
+      <div className="panel overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[#D1D5DB]/10 text-left text-xs font-medium text-[#BFC3C7]">
-              <th className="px-4 py-3">Package</th>
-              <th className="px-4 py-3">ID</th>
-              <th className="px-4 py-3">Severity</th>
-              <th className="px-4 py-3">Summary</th>
-              <th className="px-4 py-3">Fix</th>
+            <tr className="border-b border-white/[0.07] text-left text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[#8B8F94]">
+              <th scope="col" className="px-4 py-3">Package</th>
+              <th scope="col" className="px-4 py-3">ID</th>
+              <th scope="col" className="px-4 py-3">Severity</th>
+              <th scope="col" className="px-4 py-3">Summary</th>
+              <th scope="col" className="px-4 py-3">Fix</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#D1D5DB]/10">
+          <tbody className="divide-y divide-white/[0.05]">
             {visible.map((vuln, i) => (
               <tr
                 key={`${vuln.osvId}-${vuln.package}-${vuln.installedVersion}-${i}`}
-                className="hover:bg-[#0A0A0A] transition-colors align-top"
+                className="hover:bg-white/[0.02] transition-colors align-top"
               >
                 {/* Package */}
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-1.5">
                     <p className="font-medium text-white">{vuln.package}</p>
-                    {vuln.malicious && (
-                      <span
-                        className="rounded border border-red-800 bg-red-950/60 px-1 py-px text-[10px] font-semibold text-red-400"
-                        title="OSV flags this package itself as malware — remove it; there is nothing to 'upgrade'."
-                      >
-                        ☠ MALICIOUS
-                      </span>
-                    )}
                     {vuln.dependencyType === "transitive" && (
                       <span
                         className="rounded border border-[#D1D5DB]/20 px-1 py-px text-[10px] text-[#BFC3C7]/70"
@@ -158,7 +243,7 @@ export default function ScanResultsTable({
                   </p>
                 </td>
 
-                {/* Severity */}
+                {/* Severity + intel */}
                 <td className="px-4 py-3.5">
                   <Badge severity={vuln.severity} />
                   {vuln.cvssScore !== null && (
@@ -174,38 +259,7 @@ export default function ScanResultsTable({
                       NVD {vuln.nvd.cvssScore.toFixed(1)}
                     </p>
                   )}
-                  {vuln.knownExploited && (
-                    <p
-                      className="mt-0.5 text-[10px] font-semibold text-red-400"
-                      title={`This CVE is in a Known Exploited Vulnerabilities catalog — confirmed exploitation in the wild. Top remediation priority.${
-                        kevAgeDays(vuln.kevDateAdded) !== null
-                          ? ` Added ${kevAgeDays(vuln.kevDateAdded)} days ago.`
-                          : ""
-                      }`}
-                    >
-                      ⚡ exploited in the wild
-                      {isNewlyExploited(vuln.kevDateAdded) ? " · newly added" : ""}
-                    </p>
-                  )}
-                  {!vuln.knownExploited && vuln.pocCount !== null && vuln.pocCount > 0 && (
-                    <p
-                      className="mt-0.5 text-[10px] font-semibold text-orange-400"
-                      title={`${vuln.pocCount} public proof-of-concept exploit repo(s) for this CVE on GitHub (nomi-sec/PoC-in-GitHub). Exploit code is publicly available.`}
-                    >
-                      ◆ {vuln.pocCount} public PoC{vuln.pocCount === 1 ? "" : "s"}
-                    </p>
-                  )}
-                  {!vuln.knownExploited &&
-                    !(vuln.pocCount !== null && vuln.pocCount > 0) &&
-                    vuln.epssScore !== null &&
-                    vuln.epssScore >= 0.1 && (
-                      <p
-                        className="mt-0.5 font-mono text-[10px] text-orange-400/80"
-                        title={`EPSS predicts a ${(vuln.epssScore * 100).toFixed(0)}% probability this CVE is exploited within 30 days.`}
-                      >
-                        EPSS {(vuln.epssScore * 100).toFixed(0)}%
-                      </p>
-                    )}
+                  <IntelChips vuln={vuln} />
                 </td>
 
                 {/* Summary */}
@@ -232,7 +286,7 @@ export default function ScanResultsTable({
 
         {visible.length === 0 && (
           <p className="px-4 py-6 text-center text-xs text-[#BFC3C7]/60">
-            No {filter} findings — switch the filter to see the rest.
+            No findings match the current filters — reset them to see the rest.
           </p>
         )}
       </div>

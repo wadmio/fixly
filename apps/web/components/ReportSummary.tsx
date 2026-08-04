@@ -1,7 +1,9 @@
-import type { ScanResult } from "@fixly/core";
-import { Badge } from "@fixly/ui";
+import type { ScanResult, Severity } from "@fixly/core";
+import { SEVERITY_HEX } from "@/lib/grade";
 
-const SEVERITIES = ["critical", "high", "medium", "low"] as const;
+// All five severities — `unknown` counts too (a finding with no CVSS vector
+// and no database severity is still a finding).
+const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "unknown"];
 
 export default function ReportSummary({ result }: { result: ScanResult }) {
   const counts = SEVERITIES.reduce(
@@ -9,7 +11,7 @@ export default function ReportSummary({ result }: { result: ScanResult }) {
       acc[s] = result.vulnerabilities.filter((v) => v.severity === s).length;
       return acc;
     },
-    {} as Record<string, number>
+    {} as Record<Severity, number>
   );
 
   const repoLabel = result.repo
@@ -25,6 +27,7 @@ export default function ReportSummary({ result }: { result: ScanResult }) {
   });
 
   const totalVulns = result.vulnerabilities.length;
+  const present = SEVERITIES.filter((s) => counts[s] > 0);
 
   return (
     <div className="space-y-5">
@@ -37,6 +40,7 @@ export default function ReportSummary({ result }: { result: ScanResult }) {
             stroke="currentColor"
             strokeWidth={1.75}
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -87,30 +91,73 @@ export default function ReportSummary({ result }: { result: ScanResult }) {
         )}
       </div>
 
-      {/* Severity cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {SEVERITIES.map((sev) => (
-          <div
-            key={sev}
-            className="rounded-xl border border-[#D1D5DB]/10 bg-[#1A1A1A] p-4"
+      {/* Overview: packages · findings · severity distribution */}
+      <div className="panel grid grid-cols-1 gap-6 p-6 sm:grid-cols-[1fr_1fr_2.2fr] sm:gap-8">
+        <div>
+          <p className="text-[26px] font-semibold tabular-nums leading-none tracking-tight text-white">
+            {result.totalPackages}
+          </p>
+          <p className="microlabel mt-2">Packages</p>
+          <p className="mt-1 text-[11px] text-[#6E7378]">
+            {result.directPackages} direct · {result.transitivePackages} transitive
+          </p>
+        </div>
+        <div>
+          <p
+            className={`text-[26px] font-semibold tabular-nums leading-none tracking-tight ${totalVulns > 0 ? "text-red-400" : "text-emerald-400"}`}
           >
-            <p className="text-2xl font-semibold text-white">{counts[sev]}</p>
-            <div className="mt-1.5">
-              <Badge severity={sev} />
-            </div>
+            {totalVulns}
+          </p>
+          <p className="microlabel mt-2">Findings</p>
+          <p className="mt-1 text-[11px] text-[#6E7378]">
+            {result.resolvedPackages} packages checked
+          </p>
+        </div>
+        <div>
+          <p className="microlabel mb-2.5">Severity distribution</p>
+          <div className="flex h-2 gap-0.5 overflow-hidden rounded bg-white/5" aria-hidden="true">
+            {totalVulns > 0 ? (
+              present.map((s) => (
+                <span
+                  key={s}
+                  className="block min-w-2 rounded-sm"
+                  style={{ flex: counts[s], background: SEVERITY_HEX[s] }}
+                  title={`${counts[s]} ${s}`}
+                />
+              ))
+            ) : (
+              <span className="block flex-1 rounded-sm" style={{ background: "rgba(52,211,153,0.4)" }} />
+            )}
           </div>
-        ))}
+          <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1">
+            {present.length > 0 ? (
+              present.map((s) => (
+                <span key={s} className="inline-flex items-center gap-1.5 text-[11.5px] capitalize text-[#9DA2A8]">
+                  <span
+                    className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ background: SEVERITY_HEX[s] }}
+                    aria-hidden="true"
+                  />
+                  {counts[s]} {s}
+                </span>
+              ))
+            ) : (
+              <span className="text-[11px] text-[#BFC3C7]/60">no findings</span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Clean state */}
       {totalVulns === 0 && (
-        <div className="rounded-xl border border-[#D1D5DB]/10 bg-[#1A1A1A] px-6 py-10 text-center">
+        <div className="panel px-6 py-10 text-center">
           <svg
             className="mx-auto h-8 w-8 text-emerald-400"
             fill="none"
             stroke="currentColor"
             strokeWidth={1.5}
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"

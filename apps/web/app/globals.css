@@ -5,10 +5,10 @@
 @source "../../../packages/ui/src/**/*.{ts,tsx}";
 
 :root {
-  --black: #0A0A0A;
+  --black: #0A0A0B;
   --white: #FFFFFF;
   --cement: #BFC3C7;
-  --surface: #1A1A1A;
+  --surface: #111214;
   --border: #D1D5DB;
 }
 
@@ -26,4 +26,47 @@ body {
   background: var(--black);
   color: var(--white);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(52, 211, 153, 0.25);
+}
+
+/* Premium panel surface: layered dark, hairline border, faint top highlight. */
+.panel {
+  background: linear-gradient(180deg, #141518 0%, #101113 100%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* Uppercase micro-label — section titles inside panels. */
+.microlabel {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8b8f94;
+}
+
+/* Visible keyboard focus everywhere — components only style hover states. */
+:focus-visible {
+  outline: 2px solid var(--cement);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Score ring fill-in. `from` only: animates 0 → the inline dasharray value. */
+@keyframes ring-fill {
+  from {
+    stroke-dasharray: 0 226.2;
+  }
+}
+
+.animate-ring-fill {
+  animation: ring-fill 0.9s ease-out;
 }

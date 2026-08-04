@@ -39,8 +39,8 @@ export default function ScanHistoryRecorder({ entry }: { entry: ScanHistoryEntry
 
   if (added.length === 0 && resolved.length === 0) {
     return (
-      <div className="rounded-xl border border-[#D1D5DB]/10 bg-[#1A1A1A] px-5 py-3">
-        <p className="text-xs text-[#BFC3C7]">
+      <div className="panel px-5 py-3">
+        <p className="text-xs text-[#9DA2A8]">
           No change since the last scan ({prevDate}) — {unchanged.length}{" "}
           {unchanged.length === 1 ? "finding" : "findings"} unchanged.
         </p>
@@ -52,8 +52,8 @@ export default function ScanHistoryRecorder({ entry }: { entry: ScanHistoryEntry
     <div
       className={`rounded-xl border px-5 py-4 ${
         added.length > 0
-          ? "border-red-900/60 bg-red-950/20"
-          : "border-emerald-900/60 bg-emerald-950/20"
+          ? "border-red-400/20 bg-red-400/[0.06]"
+          : "border-emerald-400/20 bg-emerald-400/[0.06]"
       }`}
     >
       <p className="text-xs font-medium text-white">Since the last scan ({prevDate})</p>

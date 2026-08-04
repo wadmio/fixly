@@ -4,6 +4,8 @@
 // two scans of the same repository (@fixly/core/compare).
 
 import { compareFindingKeys, type ScanDelta, type SeverityCounts } from "@fixly/core/compare";
+// Type-only import — erased at compile time, so this stays client-safe.
+import type { Grade } from "@fixly/core";
 
 export interface ScanHistoryEntry {
   /** Normalized display label (owner/repo, fixture label, or folder name). */
@@ -18,6 +20,9 @@ export interface ScanHistoryEntry {
   counts: SeverityCounts;
   /** Stable finding identities for scan-over-scan comparison. */
   findingKeys: string[];
+  /** Fixly Score at scan time (absent on entries recorded before grades were stored). */
+  grade?: Grade;
+  score?: number;
 }
 
 const STORAGE_KEY = "fixly.scan-history.v1";

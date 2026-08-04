@@ -1,6 +1,11 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import ScanForm from "@/components/ScanForm";
 import RecentScans from "@/components/RecentScans";
+
+export const metadata: Metadata = {
+  title: "Scan a repository",
+};
 
 const scope = [
   "Public GitHub repositories only — no authentication required or supported.",
@@ -25,28 +30,29 @@ export default function DashboardPage() {
 
       <ScanForm />
 
-      <p className="-mt-4 text-xs text-[#BFC3C7]/70">
-        No URL handy?{" "}
+      <div className="-mt-2 flex items-center gap-2.5">
         <Link
           href="/dashboard/results?fixture=vulnerable-demo"
-          className="text-white underline-offset-2 hover:underline"
+          className="rounded-lg border border-[#D1D5DB]/20 px-3 py-1.5 text-xs font-medium text-[#BFC3C7] hover:border-[#D1D5DB]/40 hover:text-white transition-colors"
         >
           Try a sample scan
-        </Link>{" "}
-        — a bundled project of known-vulnerable packages (no GitHub needed).
-      </p>
+        </Link>
+        <p className="text-xs text-[#BFC3C7]/60">
+          A bundled project of known-vulnerable packages — no GitHub needed.
+        </p>
+      </div>
 
       <RecentScans />
 
-      <div className="rounded-xl border border-[#D1D5DB]/10 bg-[#1A1A1A] p-5">
-        <p className="mb-3 text-xs font-medium text-white">Current scope</p>
+      <div className="panel p-5">
+        <p className="microlabel mb-3">Current scope</p>
         <ul className="space-y-1.5">
           {scope.map((item) => (
             <li
               key={item}
-              className="flex gap-2 text-xs text-[#BFC3C7] leading-relaxed"
+              className="flex gap-2 text-xs text-[#9DA2A8] leading-relaxed"
             >
-              <span className="text-[#BFC3C7]/40">—</span>
+              <span className="text-[#6E7378]">—</span>
               {item}
             </li>
           ))}

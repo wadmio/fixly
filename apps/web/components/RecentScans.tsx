@@ -13,6 +13,7 @@ import {
   clearHistory,
   type ScanHistoryEntry,
 } from "@/lib/history";
+import { GRADE_TEXT } from "@/lib/grade";
 
 const SEVERITY_TEXT: Array<{ key: keyof ScanHistoryEntry["counts"]; cls: string; label: string }> = [
   { key: "critical", cls: "text-red-400", label: "C" },
@@ -45,26 +46,34 @@ export default function RecentScans() {
   if (entries.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-[#D1D5DB]/10 bg-[#1A1A1A] p-5">
+    <div className="panel p-5">
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-xs font-medium text-white">Recent scans on this device</p>
+        <p className="microlabel">Recent scans on this device</p>
         <button
           type="button"
           onClick={clearHistory}
-          className="text-[11px] text-[#BFC3C7]/50 hover:text-[#BFC3C7] transition-colors"
+          className="text-[11px] text-[#6E7378] hover:text-[#BFC3C7] transition-colors"
         >
           Clear history
         </button>
       </div>
 
-      <ul className="divide-y divide-[#D1D5DB]/10">
+      <ul className="divide-y divide-white/[0.05]">
         {entries.slice(0, 8).map((e) => (
           <li key={`${e.repo}-${e.scannedAt}`}>
             <Link
               href={e.url}
               className="group flex items-center justify-between gap-3 py-2.5"
             >
-              <div className="min-w-0">
+              {e.grade && (
+                <span
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/[0.07] bg-[#0A0A0B] font-mono text-sm font-bold ${GRADE_TEXT[e.grade]}`}
+                  title={`Fixly Score ${e.grade}${typeof e.score === "number" ? ` (${e.score}/100)` : ""}`}
+                >
+                  {e.grade}
+                </span>
+              )}
+              <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-medium text-white group-hover:text-[#BFC3C7] transition-colors">
                   {e.repo}
                 </p>

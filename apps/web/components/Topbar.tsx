@@ -10,9 +10,7 @@ function buildBreadcrumbs(pathname: string) {
 
   const labelMap: Record<string, string> = {
     dashboard: "Dashboard",
-    scan: "Scan",
     results: "Results",
-    vuln: "Vulnerability",
   };
 
   for (const seg of segments) {
@@ -31,13 +29,13 @@ export default function Topbar() {
   const crumbs = buildBreadcrumbs(pathname);
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-[#D1D5DB]/10 bg-[#1A1A1A] px-6">
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#0A0A0B]/80 px-6 backdrop-blur">
       {/* Breadcrumbs */}
       <nav className="flex items-center gap-1.5 text-sm">
         {crumbs.map((crumb, i) => (
           <span key={crumb.href} className="flex items-center gap-1.5">
             {i > 0 && (
-              <svg className="h-3.5 w-3.5 text-[#BFC3C7]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <svg className="h-3.5 w-3.5 text-[#BFC3C7]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
               </svg>
             )}
@@ -55,7 +53,7 @@ export default function Topbar() {
       {/* Actions */}
       <div className="flex items-center gap-3">
         <a
-          href="https://github.com"
+          href="https://github.com/wadmio/fixly"
           target="_blank"
           rel="noopener noreferrer"
           className="text-[#BFC3C7] hover:text-white transition-colors"
@@ -70,10 +68,10 @@ export default function Topbar() {
           href="/dashboard"
           className="flex items-center gap-2 rounded-md bg-white px-3 py-1.5 text-sm font-medium text-[#0A0A0A] hover:bg-[#BFC3C7] transition-colors"
         >
-          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          New Scan
+          New scan
         </Link>
       </div>
     </header>

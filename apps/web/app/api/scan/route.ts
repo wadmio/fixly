@@ -19,8 +19,10 @@ export async function POST(req: NextRequest) {
     const repoUrl = typeof body?.repoUrl === "string" ? body.repoUrl.trim() : "";
 
     if (!repoUrl) {
+      // Same { error: { code, message } } shape as a failed ScanResult, so
+      // consumers can parse errors uniformly.
       return NextResponse.json(
-        { error: "repoUrl is required" },
+        { error: { code: "invalid_url", message: "repoUrl is required" } },
         { status: 400 }
       );
     }
@@ -37,7 +39,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[/api/scan]", err);
     return NextResponse.json(
-      { error: "Internal scan error" },
+      { error: { code: "internal_error", message: "Internal scan error" } },
       { status: 500 }
     );
   }
