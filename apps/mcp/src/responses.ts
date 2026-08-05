@@ -6,7 +6,7 @@
 // reasons, the fix — and nothing else. (Full reports belong to the CLI/web.)
 
 import type { PackageVerdict, ScanResult, ScanGrade } from "@fixly/core";
-import { countBySeverity } from "@fixly/core";
+import { compareSemver, countBySeverity } from "@fixly/core";
 
 const MAX_REASONS = 5;
 const MAX_FIXES = 5;
@@ -34,8 +34,14 @@ export interface CompactVerdict {
 
 export function compactVerdict(v: PackageVerdict): CompactVerdict {
   // The best single remediation for a vulnerable-but-legit package: the
-  // highest fixed version among its worst findings.
-  const fix = v.vulnerabilities.find((f) => f.fixedVersion)?.fixedVersion ?? null;
+  // HIGHEST fixed version across its findings — a lower fix would leave the
+  // other advisories open. Incomparable versions keep the current best.
+  const fix = v.vulnerabilities.reduce<string | null>((best, f) => {
+    if (!f.fixedVersion) return best;
+    if (best === null) return f.fixedVersion;
+    const cmp = compareSemver(f.fixedVersion, best);
+    return cmp !== null && cmp > 0 ? f.fixedVersion : best;
+  }, null);
   return {
     package: v.package,
     evaluatedVersion: v.evaluatedVersion,
