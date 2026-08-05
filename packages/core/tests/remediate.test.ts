@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildRemediationPlan, applyRemediationPlan } from "../src/remediate";
+import { buildRemediationPlan } from "../src/remediate";
+import { buildDependencyGraph } from "../src/lock-graph";
 import type { ScanResult, ScanVulnerability, Severity } from "../src/types";
 
 function vuln(over: Partial<ScanVulnerability> & { severity: Severity }): ScanVulnerability {
@@ -74,6 +75,65 @@ describe("buildRemediationPlan", () => {
     expect(plan.actions[2].command).toBe("npm install direct-pkg@2.0.0");
   });
 
+  it("a transitive malware advisory with a fix is pinned via overrides, not left to manual removal", () => {
+    // fsevents <1.2.11 (MAL-2023-462) is a legit package caught in a past
+    // incident with a published fix — you can't uninstall a transitive dep, so
+    // the actionable remediation is an override to the fixed version.
+    const plan = buildRemediationPlan(
+      result([
+        vuln({
+          severity: "critical",
+          package: "fsevents",
+          dependencyType: "transitive",
+          malicious: true,
+          osvId: "MAL-2023-462",
+          fixedVersion: "1.2.11",
+        }),
+      ])
+    );
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0].kind).toBe("override");
+    expect(plan.actions[0].targetVersion).toBe("1.2.11");
+    expect(plan.actions[0].command).toBe(
+      "npm pkg set overrides.fsevents=1.2.11 && npm install"
+    );
+    expect(plan.unfixable).toEqual([]);
+  });
+
+  it("a transitive malware advisory with NO fix still requires manual removal", () => {
+    const plan = buildRemediationPlan(
+      result([
+        vuln({
+          severity: "critical",
+          package: "evil-transitive",
+          dependencyType: "transitive",
+          malicious: true,
+          osvId: "MAL-9",
+          fixedVersion: null,
+        }),
+      ])
+    );
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0].kind).toBe("remove");
+  });
+
+  it("a DIRECT malware advisory is removed even when it has a fix", () => {
+    const plan = buildRemediationPlan(
+      result([
+        vuln({
+          severity: "low",
+          package: "evil-direct",
+          malicious: true,
+          osvId: "MAL-7",
+          fixedVersion: "2.0.0",
+        }),
+      ])
+    );
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0].kind).toBe("remove");
+    expect(plan.actions[0].command).toBe("npm uninstall evil-direct");
+  });
+
   it("one bump per package clears every finding at the highest fixed version", () => {
     const plan = buildRemediationPlan(
       result([
@@ -126,50 +186,102 @@ describe("buildRemediationPlan", () => {
   });
 });
 
-describe("applyRemediationPlan", () => {
-  const manifest = JSON.stringify(
-    {
-      name: "demo",
-      dependencies: { "direct-pkg": "^1.0.0", "evil-pkg": "1.0.0" },
-      devDependencies: { "tilde-pkg": "~1.0.0" },
+describe("buildRemediationPlan with a dependency graph", () => {
+  // parent@3.0.0 pins the vulnerable transitive dep to ~1.0.0; the fix is 1.1.0.
+  const blockingLock = {
+    lockfileVersion: 3,
+    packages: {
+      "": { dependencies: { parent: "^3.0.0" } },
+      "node_modules/parent": { version: "3.0.0", dependencies: { pinned: "~1.0.0" } },
+      "node_modules/pinned": { version: "1.0.0" },
     },
-    null,
-    2
-  ) + "\n";
+  };
 
-  it("bumps direct deps preserving range style, removes malware, pins transitives via overrides", () => {
+  it("a blocked transitive fix moves to plan.blocked (advice-only) and caps the forecast", () => {
+    const graph = buildDependencyGraph(blockingLock)!;
+    const scan = result([
+      vuln({
+        severity: "high",
+        package: "pinned",
+        dependencyType: "transitive",
+        osvId: "GHSA-blocked",
+        fixedVersion: "1.1.0",
+      }),
+    ]);
+    const plan = buildRemediationPlan(scan, { graph });
+
+    expect(plan.actions).toEqual([]);
+    expect(plan.unfixable).toEqual([]);
+    expect(plan.blocked).toHaveLength(1);
+    expect(plan.blocked[0].path).toBe("BLOCKED_BY_PARENT");
+    expect(plan.blocked[0].blockers).toEqual([
+      { dependent: "parent@3.0.0", range: "~1.0.0" },
+    ]);
+    expect(plan.fixableFindings).toBe(0);
+    // The blocked finding still costs points in the forecast — we never
+    // forecast a fix we don't offer.
+    expect(plan.forecast.after.score).toBe(plan.forecast.before.score);
+  });
+
+  it("blocked MALWARE falls back to a manual remove action, never advice-only", () => {
+    const graph = buildDependencyGraph(blockingLock)!;
+    const scan = result([
+      vuln({
+        severity: "critical",
+        package: "pinned",
+        dependencyType: "transitive",
+        osvId: "MAL-77",
+        malicious: true,
+        fixedVersion: "1.1.0",
+      }),
+    ]);
+    const plan = buildRemediationPlan(scan, { graph });
+
+    expect(plan.blocked).toEqual([]);
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0].kind).toBe("remove");
+    expect(plan.actions[0].command).toContain("npm ls pinned");
+  });
+
+  it("an unblocked transitive fix keeps its override action, now carrying the resolution", () => {
+    const permissiveLock = {
+      lockfileVersion: 3,
+      packages: {
+        "": { dependencies: { parent: "^3.0.0" } },
+        "node_modules/parent": { version: "3.0.0", dependencies: { loose: "^1.0.0" } },
+        "node_modules/loose": { version: "1.0.0" },
+      },
+    };
+    const graph = buildDependencyGraph(permissiveLock)!;
     const plan = buildRemediationPlan(
       result([
-        vuln({ severity: "high", package: "direct-pkg" }),
-        vuln({ severity: "medium", package: "tilde-pkg", fixedVersion: "1.4.0" }),
-        vuln({ severity: "low", package: "evil-pkg", malicious: true, osvId: "MAL-1" }),
-        vuln({ severity: "critical", package: "deep-pkg", dependencyType: "transitive" }),
-      ])
+        vuln({
+          severity: "high",
+          package: "loose",
+          dependencyType: "transitive",
+          osvId: "GHSA-loose",
+          fixedVersion: "1.1.0",
+        }),
+      ]),
+      { graph }
     );
-    const applied = applyRemediationPlan(manifest, plan);
-    const out = JSON.parse(applied.text);
-    expect(out.dependencies["direct-pkg"]).toBe("^2.0.0");
-    expect(out.devDependencies["tilde-pkg"]).toBe("~1.4.0");
-    expect(out.dependencies["evil-pkg"]).toBeUndefined();
-    expect(out.overrides["deep-pkg"]).toBe("2.0.0");
-    expect(applied.skipped).toEqual([]);
-    expect(applied.changes).toHaveLength(4);
-    expect(applied.text.endsWith("\n")).toBe(true);
+
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0].kind).toBe("override");
+    expect(plan.actions[0].targetVersion).toBe("1.1.0");
+    expect(plan.actions[0].resolution?.path).toBe("TRANSITIVE_OVERRIDE");
+    expect(plan.actions[0].resolution?.risk).toBe("elevated");
+    expect(plan.actions[0].resolution?.constraintsChecked).toBe(true);
+    expect(plan.blocked).toEqual([]);
   });
 
-  it("skips upgrades for packages not declared in the manifest instead of inventing entries", () => {
-    const plan = buildRemediationPlan(result([vuln({ severity: "high", package: "ghost-pkg" })]));
-    const applied = applyRemediationPlan(manifest, plan);
-    expect(applied.skipped).toHaveLength(1);
-    expect(applied.skipped[0].package).toBe("ghost-pkg");
-    expect(JSON.parse(applied.text)).toEqual(JSON.parse(manifest));
-  });
-
-  it("preserves the manifest's indentation", () => {
-    const fourSpace = JSON.stringify({ dependencies: { "direct-pkg": "1.0.0" } }, null, 4);
-    const plan = buildRemediationPlan(result([vuln({ severity: "high", package: "direct-pkg" })]));
-    const applied = applyRemediationPlan(fourSpace, plan);
-    expect(applied.text).toContain('\n    "dependencies"');
-    expect(JSON.parse(applied.text).dependencies["direct-pkg"]).toBe("2.0.0");
+  it("upgrade actions carry DIRECT resolutions with distance and risk", () => {
+    const plan = buildRemediationPlan(
+      result([vuln({ severity: "high", package: "direct-pkg", fixedVersion: "1.0.5" })])
+    );
+    expect(plan.actions[0].resolution?.path).toBe("DIRECT");
+    expect(plan.actions[0].resolution?.semverDistance).toBe("PATCH");
+    expect(plan.actions[0].resolution?.risk).toBe("low");
+    expect(plan.actions[0].resolution?.constraintsChecked).toBe(false);
   });
 });

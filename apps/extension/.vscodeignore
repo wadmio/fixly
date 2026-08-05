@@ -1,6 +1,10 @@
 src/**
+tests/**
 node_modules/**
+.vscode/**
+.turbo/**
 tsconfig.json
 esbuild.mjs
 eslint.config.mjs
+vitest.config.ts
 **/*.map

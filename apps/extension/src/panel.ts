@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { ScanResult } from "@fixly/core";
+import type { DependencyGraph, ScanResult } from "@fixly/core";
 import { renderHtml, buildSummaryText } from "./panel-render";
 
 function makeNonce(): string {
@@ -18,12 +18,17 @@ export class FixlyPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
   private result: ScanResult;
+  private graph: DependencyGraph | null;
   private onRescan: () => void;
 
-  static show(result: ScanResult, onRescan: () => void): void {
+  static show(
+    result: ScanResult,
+    graph: DependencyGraph | null,
+    onRescan: () => void
+  ): void {
     if (FixlyPanel.current) {
       FixlyPanel.current.onRescan = onRescan;
-      FixlyPanel.current.update(result);
+      FixlyPanel.current.update(result, graph);
       FixlyPanel.current.panel.reveal(vscode.ViewColumn.Beside);
       return;
     }
@@ -33,22 +38,24 @@ export class FixlyPanel {
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true }
     );
-    FixlyPanel.current = new FixlyPanel(panel, result, onRescan);
+    FixlyPanel.current = new FixlyPanel(panel, result, graph, onRescan);
   }
 
   /** Refresh the report if the panel is already open (e.g. after an on-save
    *  rescan) without stealing focus; no-op when the panel is closed. */
-  static updateIfOpen(result: ScanResult): void {
-    FixlyPanel.current?.update(result);
+  static updateIfOpen(result: ScanResult, graph: DependencyGraph | null): void {
+    FixlyPanel.current?.update(result, graph);
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     result: ScanResult,
+    graph: DependencyGraph | null,
     onRescan: () => void
   ) {
     this.panel = panel;
     this.result = result;
+    this.graph = graph;
     this.onRescan = onRescan;
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -60,13 +67,14 @@ export class FixlyPanel {
     this.render();
   }
 
-  update(result: ScanResult): void {
+  update(result: ScanResult, graph: DependencyGraph | null): void {
     this.result = result;
+    this.graph = graph;
     this.render();
   }
 
   private render(): void {
-    this.panel.webview.html = renderHtml(this.result, makeNonce());
+    this.panel.webview.html = renderHtml(this.result, makeNonce(), this.graph);
   }
 
   private async handleMessage(msg: { type: string }): Promise<void> {

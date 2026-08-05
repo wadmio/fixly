@@ -2,8 +2,15 @@
 // any `vscode` import so it's unit-testable in a plain Node/vitest environment
 // (the vscode-dependent panel wiring lives in panel.ts).
 
-import { computeGrade, type Grade, type ScanGrade } from "@fixly/core";
-import type { ScanResult, ScanVulnerability, Severity } from "@fixly/core";
+import { buildRemediationPlan, computeGrade, type Grade, type ScanGrade } from "@fixly/core";
+import type {
+  DependencyGraph,
+  RemediationAction,
+  RemediationPlan,
+  ScanResult,
+  ScanVulnerability,
+  Severity,
+} from "@fixly/core";
 
 // Same grade palette as the web ScoreCard (emerald/cyan/yellow/orange/red 400s).
 const GRADE_COLORS: Record<Grade, string> = {
@@ -118,9 +125,104 @@ function scoreHtml(grade: ScanGrade): string {
   </div>`;
 }
 
-export function renderHtml(result: ScanResult, nonce: string): string {
+/** Risk chips for one action — driven by the resolution engine's data
+ *  (semver distance + path), never re-inferred here in the view. */
+function riskChipsHtml(action: RemediationAction): string {
+  if (action.kind === "remove") {
+    return `<span class="chip risk-remove">malware — remove</span>`;
+  }
+  const chips: string[] = [];
+  const distance = action.resolution?.semverDistance ?? null;
+  if (distance === "MAJOR") {
+    chips.push(`<span class="chip risk-elevated" title="May contain breaking changes — review the changelog">major</span>`);
+  } else if (distance !== null) {
+    chips.push(`<span class="chip risk-low">${distance.toLowerCase()}</span>`);
+  } else {
+    chips.push(`<span class="chip risk-elevated" title="The jump size could not be determined">unknown jump</span>`);
+  }
+  if (action.kind === "override") {
+    chips.push(
+      `<span class="chip risk-elevated" title="Forces a version tree-wide that the parent was not necessarily tested against">override</span>`
+    );
+  }
+  return chips.join(" ");
+}
+
+/** The ordered remediation plan with per-action risk chips + rationale, the
+ *  advice-only Blocked section, and findings with no published fix. */
+function planHtml(plan: RemediationPlan): string {
+  const actions =
+    plan.actions.length > 0
+      ? `<ul class="plan-list">
+          ${plan.actions
+            .map((a) => {
+              const versions =
+                a.kind === "remove"
+                  ? `@${escapeHtml(a.installedVersion)}`
+                  : ` ${escapeHtml(a.installedVersion)} → ${escapeHtml(a.targetVersion ?? "?")}`;
+              const rationale = a.resolution
+                ? `<div class="rationale muted">${escapeHtml(a.resolution.rationale)}</div>`
+                : "";
+              return `<li>
+                <div><span class="pkg">${escapeHtml(a.package)}</span><span class="muted mono">${versions}</span> ${riskChipsHtml(a)}</div>
+                ${rationale}
+                <div class="cmd mono">$ ${escapeHtml(a.command)}</div>
+              </li>`;
+            })
+            .join("")}
+        </ul>`
+      : "";
+
+  const blocked =
+    plan.blocked.length > 0
+      ? `<div class="blocked">
+          <div class="blocked-title">Blocked — a fix exists, but no safe edit is available</div>
+          <ul>
+            ${plan.blocked
+              .map(
+                (b) =>
+                  `<li><span class="pkg">${escapeHtml(b.package)}</span><span class="muted mono">@${escapeHtml(b.installedVersion)}</span>
+                    <div class="rationale muted">${escapeHtml(b.rationale)}</div>
+                  </li>`
+              )
+              .join("")}
+          </ul>
+        </div>`
+      : "";
+
+  const unfixable =
+    plan.unfixable.length > 0
+      ? `<div class="unfixable muted">No fix published yet: ${plan.unfixable
+          .map((u) => `${escapeHtml(u.package)} (${escapeHtml(u.osvId)}, ${escapeHtml(u.severity)})`)
+          .join(" · ")}</div>`
+      : "";
+
+  if (!actions && !blocked && !unfixable) return "";
+  return `<div class="plan">
+    <div class="plan-title">Remediation Plan</div>
+    ${actions}${blocked}${unfixable}
+  </div>`;
+}
+
+/** Grade Forecast line (advice only); empty when nothing is fixable. */
+function forecastHtml(plan: RemediationPlan): string {
+  if (plan.actions.length === 0) return "";
+  const { after, pointsRecovered } = plan.forecast;
+  const color = GRADE_COLORS[after.grade];
+  const points = pointsRecovered > 0 ? `, +${pointsRecovered} points` : "";
+  return `<div class="forecast">
+    <span class="forecast-text">Fix per the plan below → <span class="forecast-grade" style="color:${color}">${after.grade} (${after.score})</span>${points}</span>
+  </div>`;
+}
+
+export function renderHtml(
+  result: ScanResult,
+  nonce: string,
+  graph: DependencyGraph | null = null
+): string {
   const counts = severityCounts(result);
   const grade = computeGrade(result);
+  const plan = buildRemediationPlan(result, { graph });
 
   const warningsHtml =
     result.warnings.length > 0 || result.error
@@ -173,7 +275,23 @@ export function renderHtml(result: ScanResult, nonce: string): string {
   .fixes-title { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
   .fixes ul { margin: 0; padding-left: 16px; }
   .fixes li { font-size: 12px; margin: 4px 0; }
+  .forecast { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #1A1A1A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 10px 16px; margin: 0 0 16px; }
+  .forecast-text { font-size: 12px; color: #BFC3C7; }
+  .forecast-grade { font-weight: 700; }
   .cmd { color: #34d399; background: #0A0A0A; border-radius: 4px; padding: 2px 6px; margin-top: 2px; width: fit-content; font-size: 11px; }
+  .plan { background: #1A1A1A; border: 1px solid rgba(209,213,219,0.1); border-radius: 10px; padding: 14px 16px; margin: 0 0 16px; }
+  .plan-title { font-size: 11px; font-weight: 600; margin-bottom: 8px; }
+  .plan-list { margin: 0; padding-left: 16px; }
+  .plan-list li { font-size: 12px; margin: 8px 0; }
+  .rationale { font-size: 11px; margin-top: 2px; max-width: 680px; }
+  .risk-low { border-color: rgba(52,211,153,0.5); color: #34d399; }
+  .risk-elevated { border-color: rgba(251,146,60,0.6); color: #fb923c; }
+  .risk-remove { border-color: rgba(248,113,113,0.6); color: #f87171; }
+  .blocked { background: rgba(120,90,0,0.12); border: 1px solid rgba(180,140,0,0.4); border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
+  .blocked-title { font-size: 11px; font-weight: 600; color: #f4c150; margin-bottom: 6px; }
+  .blocked ul { margin: 0; padding-left: 16px; }
+  .blocked li { font-size: 12px; margin: 4px 0; }
+  .unfixable { font-size: 11px; margin-top: 10px; }
   .warnings { background: rgba(120,90,0,0.12); border: 1px solid rgba(180,140,0,0.4); border-radius: 10px; padding: 12px 14px; margin: 16px 0; }
   .warnings-title { font-size: 11px; font-weight: 600; color: #f4c150; margin-bottom: 6px; }
   .warnings ul { margin: 0; padding-left: 16px; }
@@ -208,6 +326,8 @@ export function renderHtml(result: ScanResult, nonce: string): string {
   </div>
 
   ${scoreHtml(grade)}
+  ${forecastHtml(plan)}
+  ${planHtml(plan)}
 
   <div class="cards">
     ${cardHtml("Packages", result.totalPackages)}

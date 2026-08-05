@@ -69,8 +69,11 @@ pnpm --filter fixly-vscode build
 ```
 
 Then open `apps/extension` in VS Code and press <kbd>F5</kbd> to launch an Extension Development
-Host. In that window, open a Node.js project folder and run **Fixly: Scan Current Project** from the
-command palette. The report opens in a webview; logs go to the "Fixly" output channel.
+Host. F5 uses the **Run Fixly Extension** configuration in
+[apps/extension/.vscode/launch.json](../apps/extension/.vscode/launch.json) (an `extensionHost`
+launch pointing at `dist/`), so build first. In that window, open a Node.js project folder and run
+**Fixly: Scan Current Project** from the command palette. The report opens in a webview; logs go
+to the "Fixly" output channel.
 
 ## Validation (live)
 

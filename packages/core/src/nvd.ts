@@ -14,19 +14,28 @@
 // rescans) don't re-pay the cost. It never fails a scan — on any problem the
 // findings simply stay OSV-only and a warning explains the coverage.
 
-import { fetchWithRetry } from "./http";
+import { fetchWithRetry, mapWithConcurrency } from "./http";
 import { BoundedMap } from "./bounded-map";
 import type { NvdData, ScanVulnerability, Severity } from "./types";
 
 const NVD_BASE = "https://services.nvd.nist.gov/rest/json/cves/2.0";
 
-/** Max CVEs fetched per scan, respecting NVD's public rate windows. */
+/** Max CVEs fetched per scan, respecting NVD's public rate windows
+ *  (5 requests / 30s without a key, 50 with one). */
 const MAX_CVES_WITHOUT_KEY = 5;
 const MAX_CVES_WITH_KEY = 40;
 /** Per-request timeout — a slow NVD must never stall the scan. */
 const REQUEST_TIMEOUT_MS = 4_000;
-/** Overall enrichment budget per scan. */
-const DEFAULT_TIME_BUDGET_MS = 8_000;
+/** Overall enrichment budget per scan. Larger with a key: NVD is slow (~1-2s
+ *  per request) and serial fetching under the 8s budget only cleared ~3 CVEs,
+ *  so a key's higher cap was never reached. With a key we spend longer and
+ *  fetch concurrently to actually approach the 40-CVE cap. */
+const TIME_BUDGET_WITHOUT_KEY_MS = 8_000;
+const TIME_BUDGET_WITH_KEY_MS = 15_000;
+/** Concurrent NVD requests. Serial without a key (the 5/30s public window
+ *  punishes bursts); a key's 50/30s window affords real parallelism. */
+const CONCURRENCY_WITHOUT_KEY = 1;
+const CONCURRENCY_WITH_KEY = 8;
 
 // CVE → NvdData (or null when NVD had no usable CVSS data for it). Module-level
 // so rescans and demo repeats hit the cache instead of the rate limit. Capped
@@ -94,8 +103,10 @@ async function fetchNvdCve(
 export interface NvdEnrichmentOptions {
   /** Overrides the NVD_API_KEY environment variable. */
   apiKey?: string;
-  /** Overall time budget in ms (default 8000). */
+  /** Overall time budget in ms (default: 8000 without a key, 15000 with). */
   timeBudgetMs?: number;
+  /** Max concurrent NVD requests (default: 1 without a key, 8 with). */
+  concurrency?: number;
 }
 
 export interface NvdEnrichment {
@@ -108,15 +119,21 @@ export interface NvdEnrichment {
 
 /**
  * Best-effort NVD cross-reference for every finding that carries a CVE id.
- * Sequential requests (NVD's rolling rate windows punish bursts), bounded by a
- * request cap and a time budget. Failures degrade to warnings — never throws.
+ * Serial without a key (the public rate window punishes bursts); with a key,
+ * fetched concurrently under a larger budget so more CVEs are covered. Bounded
+ * by a request cap and a time budget. Failures degrade to warnings — never
+ * throws.
  */
 export async function enrichWithNvd(
   vulnerabilities: ScanVulnerability[],
   options: NvdEnrichmentOptions = {}
 ): Promise<NvdEnrichment> {
   const apiKey = options.apiKey ?? process.env.NVD_API_KEY ?? undefined;
-  const timeBudgetMs = options.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS;
+  const timeBudgetMs =
+    options.timeBudgetMs ??
+    (apiKey ? TIME_BUDGET_WITH_KEY_MS : TIME_BUDGET_WITHOUT_KEY_MS);
+  const concurrency =
+    options.concurrency ?? (apiKey ? CONCURRENCY_WITH_KEY : CONCURRENCY_WITHOUT_KEY);
   const maxFetches = apiKey ? MAX_CVES_WITH_KEY : MAX_CVES_WITHOUT_KEY;
 
   // Unique CVEs in severity order, so the budget is spent on the worst
@@ -129,32 +146,50 @@ export async function enrichWithNvd(
     return { vulnerabilities, warnings: [], enrichedCount: 0 };
   }
 
+  // Cached CVEs are free (no request, no budget); queue the rest up to the cap.
   const dataByCve = new Map<string, NvdData>();
+  const toFetch: string[] = [];
+  let cachedCount = 0;
+  for (const cveId of uniqueCves) {
+    if (nvdCache.has(cveId)) {
+      cachedCount++;
+      const data = nvdCache.get(cveId);
+      if (data) dataByCve.set(cveId, data);
+    } else if (toFetch.length < maxFetches) {
+      toFetch.push(cveId);
+    }
+  }
+
+  // Fetch with bounded concurrency; each request is capped by the remaining
+  // budget, and once the deadline passes the rest are skipped (not attempted).
   const warnings: string[] = [];
   const deadline = Date.now() + timeBudgetMs;
-  let fetches = 0;
   let failed = 0;
-  let attempted = 0;
-
-  for (const cveId of uniqueCves) {
-    const isCached = nvdCache.has(cveId);
-    if (!isCached && (fetches >= maxFetches || Date.now() >= deadline)) break;
-    attempted++;
+  let skipped = 0;
+  await mapWithConcurrency(toFetch, concurrency, async (cveId) => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      skipped++;
+      return;
+    }
+    // Bound each request to the remaining budget so it can't overrun (with a
+    // small floor so a near-deadline request still has a fair chance).
+    const perRequest = Math.max(500, Math.min(REQUEST_TIMEOUT_MS, remaining));
     try {
-      if (!isCached) fetches++;
-      // Bound each request to the remaining budget so it can't overrun (with a
-      // small floor so a near-deadline request still has a fair chance).
-      const perRequest = Math.max(500, Math.min(REQUEST_TIMEOUT_MS, deadline - Date.now()));
       const data = await fetchNvdCve(cveId, apiKey, perRequest);
       if (data) dataByCve.set(cveId, data);
     } catch {
       failed++;
     }
-  }
+  });
 
+  const attempted = cachedCount + (toFetch.length - skipped);
   if (attempted < uniqueCves.length) {
+    const hint = apiKey
+      ? "best-effort within the NVD time budget"
+      : "public NVD API rate limits — set NVD_API_KEY to raise coverage";
     warnings.push(
-      `NVD cross-check covered ${attempted} of ${uniqueCves.length} CVEs (public NVD API rate limits — set NVD_API_KEY to raise coverage). Uncovered findings remain OSV-only.`
+      `NVD cross-check covered ${attempted} of ${uniqueCves.length} CVEs (${hint}). Uncovered findings remain OSV-only.`
     );
   }
   if (failed > 0 && dataByCve.size === 0) {

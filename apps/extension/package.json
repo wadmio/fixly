@@ -1,10 +1,20 @@
 {
   "name": "fixly-vscode",
   "displayName": "Fixly",
-  "description": "Scan your project's npm dependencies for known vulnerabilities (OSV).",
-  "version": "0.1.0",
-  "private": true,
+  "description": "Scan your project's npm dependencies for known vulnerabilities (OSV). Fixly analyzes and verifies, never modifies.",
+  "version": "0.2.0",
   "publisher": "fixly",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0A0A0A",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wadmio/fixly.git",
+    "directory": "apps/extension"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -28,18 +38,29 @@
         "fixly.scanOnSave": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically rescan when package.json or package-lock.json is saved."
+          "description": "Automatically rescan when package.json or package-lock.json changes — editor saves and external writes alike (e.g. npm install updating the lock file)."
+        },
+        "fixly.scanOnType": {
+          "type": "boolean",
+          "default": false,
+          "description": "Rescan as you type in package.json, using the unsaved editor contents (debounced). The saved package-lock.json is still used for the dependency tree."
         },
         "fixly.includeTransitive": {
           "type": "boolean",
           "default": true,
           "description": "Also scan transitive dependencies discovered in the package-lock.json tree."
+        },
+        "fixly.nvdApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional [NVD API key](https://nvd.nist.gov/developers/request-an-api-key). NVD's public rate limit (5 requests / 30s) means only a few CVEs are cross-referenced per scan; a key raises the limit so more findings get NVD's independent CVSS score. Leave blank to use an `NVD_API_KEY` environment variable instead."
         }
       }
     }
   },
   "scripts": {
     "build": "node esbuild.mjs",
+    "package:vsix": "node esbuild.mjs && vsce package --no-dependencies",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -49,6 +70,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
+    "@vscode/vsce": "^3.6.0",
     "@types/vscode": "^1.90.0",
     "esbuild": "^0.25.0",
     "eslint": "^9.39.1",

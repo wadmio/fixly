@@ -43,16 +43,29 @@ export type { NameRiskResult } from "./name-model";
 export { computeGrade, findingPenalty } from "./grade";
 export type { ScanGrade, Grade, TopFix, GradeBreakdownEntry } from "./grade";
 
-// Remediation engine — executable fix plan + Grade Forecast for a scan.
-export { buildRemediationPlan, applyRemediationPlan } from "./remediate";
+// Remediation engine — advice-only fix plan + Grade Forecast for a scan.
+export { buildRemediationPlan } from "./remediate";
 export type {
   RemediationPlan,
   RemediationAction,
   RemediationKind,
   UnfixableFinding,
   GradeForecast,
-  AppliedRemediation,
+  BuildRemediationPlanOptions,
 } from "./remediate";
+
+// Resolution engine — structured per-package remediation decisions (path,
+// target version, semver distance, risk, rationale), pure and graph-aware.
+export { resolveRemediation, semverDistanceBetween } from "./resolution";
+export { buildDependencyGraph, LockDependencyGraph } from "./lock-graph";
+export type {
+  Remediation,
+  ResolutionPath,
+  SemverDistance,
+  RemediationRisk,
+  DependencyGraph,
+  DependentEdge,
+} from "./resolution";
 
 // Pure scan-diff helpers (also exported at @fixly/core/compare for client-safe
 // imports).
@@ -63,6 +76,7 @@ export {
   compareSemver,
   isVersionInOsvRanges,
   formatAffectedRanges,
+  satisfiesRange,
 } from "./matching";
 
 export { clearScanCache } from "./cache";

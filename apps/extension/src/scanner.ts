@@ -1,9 +1,21 @@
 import * as vscode from "vscode";
-import { scanProjectFiles, type ScanResult } from "@fixly/core";
+import {
+  buildDependencyGraph,
+  scanProjectFiles,
+  type DependencyGraph,
+  type ScanResult,
+} from "@fixly/core";
 
 export type ScanOutcome =
-  | { ok: true; result: ScanResult }
+  /** `graph` is the lock-file dependency graph (null for v1/absent locks) —
+   *  the remediation surfaces use it to check dependent version constraints. */
+  | { ok: true; result: ScanResult; graph: DependencyGraph | null }
   | { ok: false; error: string };
+
+/** Mask an API key for logging — reveal only the last 4 chars, never the rest. */
+function maskKey(key: string): string {
+  return key.length <= 4 ? "****" : `****${key.slice(-4)}`;
+}
 
 async function readJson(
   uri: vscode.Uri,
@@ -19,12 +31,20 @@ async function readJson(
   }
 }
 
+export interface ScanWorkspaceOptions {
+  /** Unsaved package.json text (e.g. from an open, dirty editor). When set it
+   *  is parsed instead of reading package.json from disk, so as-you-type scans
+   *  reflect the buffer; package-lock.json is still read from disk (saved). */
+  packageJsonText?: string;
+}
+
 /**
  * Scan the first open workspace folder: read its package.json /
  * package-lock.json and run the shared @fixly/core pipeline against OSV.
  */
 export async function scanWorkspace(
-  log: (msg: string) => void
+  log: (msg: string) => void,
+  opts: ScanWorkspaceOptions = {}
 ): Promise<ScanOutcome> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
@@ -34,10 +54,23 @@ export async function scanWorkspace(
     };
   }
 
-  const packageJson = await readJson(
-    vscode.Uri.joinPath(folder.uri, "package.json"),
-    log
-  );
+  let packageJson: unknown | null;
+  if (opts.packageJsonText !== undefined) {
+    try {
+      packageJson = JSON.parse(opts.packageJsonText);
+    } catch {
+      // Mid-edit the buffer is often not valid JSON yet — skip quietly.
+      return {
+        ok: false,
+        error: "package.json is not valid JSON yet — skipping scan.",
+      };
+    }
+  } else {
+    packageJson = await readJson(
+      vscode.Uri.joinPath(folder.uri, "package.json"),
+      log
+    );
+  }
   if (!packageJson) {
     return {
       ok: false,
@@ -61,6 +94,16 @@ export async function scanWorkspace(
   const config = vscode.workspace.getConfiguration("fixly");
   const includeTransitive = config.get<boolean>("includeTransitive", true);
 
+  // Feed an NVD API key from settings to core the same way NVD_API_KEY does:
+  // core's enrichWithNvd reads process.env.NVD_API_KEY at scan time and we run
+  // it in this same process. Only set it when non-empty so a shell-exported
+  // NVD_API_KEY still works when the setting is blank. Key is masked in logs.
+  const nvdApiKey = config.get<string>("nvdApiKey", "").trim();
+  if (nvdApiKey) {
+    process.env.NVD_API_KEY = nvdApiKey;
+    log(`Using NVD API key from settings (${maskKey(nvdApiKey)}) — raises NVD rate limits.`);
+  }
+
   log("Querying OSV…");
   const result = await scanProjectFiles({
     packageJson,
@@ -80,5 +123,5 @@ export async function scanWorkspace(
     `Scan complete: ${result.vulnerabilities.length} vulnerabilities across ${result.totalPackages} packages.`
   );
 
-  return { ok: true, result };
+  return { ok: true, result, graph: buildDependencyGraph(packageLock) };
 }
