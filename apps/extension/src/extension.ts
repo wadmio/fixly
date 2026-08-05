@@ -2,12 +2,15 @@ import * as vscode from "vscode";
 import {
   buildRemediationPlan,
   type DependencyGraph,
+  type RemediationPlan,
   type ScanResult,
   type Severity,
 } from "@fixly/core";
 import { scanWorkspace } from "./scanner";
 import { FixlyPanel } from "./panel";
 import { adviceForScan } from "./advice";
+import { buildFixBrief, buildPackageBrief } from "./brief";
+import { FixlyCodeActionProvider } from "./codeaction";
 import { updateDiagnostics } from "./diagnostics";
 import { FixlyHoverProvider } from "./hover";
 import { debounce, type Debounced } from "./debounce";
@@ -30,6 +33,8 @@ let lastResult: ScanResult | undefined;
 // Lock-file dependency graph from the same scan as lastResult (null when the
 // lock is v1/absent) — feeds dependent-constraint checks in the advice surfaces.
 let lastGraph: DependencyGraph | null = null;
+// Remediation plan from the same scan — feeds the copyable fix briefs.
+let lastPlan: RemediationPlan | undefined;
 let scanning = false;
 // The freshest request that arrived while a scan was in flight; run when it
 // finishes so the latest text always wins and stale results are dropped.
@@ -86,6 +91,21 @@ export function activate(context: vscode.ExtensionContext): void {
         runScan({ revealPanel: true, quiet: false });
       }
     }),
+    // Copyable fix briefs — clipboard only, never an edit. The full-scan brief
+    // is a palette command; the per-package one is reached via the lightbulb
+    // code action on a Fixly diagnostic (and hidden from the palette).
+    vscode.commands.registerCommand("fixly.copyFixBrief", () => copyBrief()),
+    vscode.commands.registerCommand("fixly.copyPackageBrief", (pkg?: string) =>
+      copyBrief(pkg)
+    ),
+    vscode.languages.registerCodeActionsProvider(
+      [
+        { language: "json", pattern: "**/package.json" },
+        { language: "jsonc", pattern: "**/package.json" },
+      ],
+      new FixlyCodeActionProvider(),
+      FixlyCodeActionProvider.metadata
+    ),
     // On-save scanning: saving package.json / package-lock.json re-scans
     // automatically. Disk writes that bypass the editor (npm install rewriting
     // the lock file) are caught by the manifest watcher below; both funnel
@@ -141,6 +161,32 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 /**
+ * Copy the fix brief (whole scan, or one package via the code action) to the
+ * clipboard. Advice only: Fixly never applies any of it.
+ */
+async function copyBrief(pkg?: string): Promise<void> {
+  if (!lastResult || !lastPlan) {
+    vscode.window.showWarningMessage(
+      'Fixly: no scan yet — run "Fixly: Scan Current Project" first.'
+    );
+    return;
+  }
+  const text = pkg
+    ? buildPackageBrief(lastResult, lastPlan, pkg)
+    : buildFixBrief(lastResult, lastPlan);
+  if (!text) {
+    vscode.window.showInformationMessage(`Fixly: no findings for ${pkg}.`);
+    return;
+  }
+  await vscode.env.clipboard.writeText(text);
+  vscode.window.showInformationMessage(
+    pkg
+      ? `Fixly: fix brief for ${pkg} copied — paste it to a teammate or coding agent.`
+      : "Fixly: complete fix brief copied — paste it to a teammate or coding agent."
+  );
+}
+
+/**
  * Debounced quiet rescan shared by the on-save listener and the manifest
  * watcher (an editor save fires both; npm install fires the watcher several
  * times) — one timer means any burst of triggers scans once. Honors the
@@ -173,7 +219,7 @@ function severityCounts(result: ScanResult): Record<Severity, number> {
   return counts;
 }
 
-function updateStatusBar(result: ScanResult, graph: DependencyGraph | null): void {
+function updateStatusBar(result: ScanResult, plan: RemediationPlan): void {
   const counts = severityCounts(result);
   const total = result.vulnerabilities.length;
 
@@ -205,7 +251,6 @@ function updateStatusBar(result: ScanResult, graph: DependencyGraph | null): voi
       : counts.medium > 0
         ? new vscode.ThemeColor("statusBarItem.warningBackground")
         : undefined;
-  const plan = buildRemediationPlan(result, { graph });
   const forecastNote =
     plan.actions.length > 0
       ? ` Fix plan → ${plan.forecast.after.grade} (${plan.forecast.after.score}).`
@@ -272,13 +317,11 @@ async function runScan(opts: RunScanOpts): Promise<void> {
 
         lastResult = result;
         lastGraph = outcome.graph;
-        updateStatusBar(result, lastGraph);
+        lastPlan = buildRemediationPlan(result, { graph: lastGraph });
+        updateStatusBar(result, lastPlan);
 
-        // One advice computation feeds both squiggles and hover cards.
-        const advice = adviceForScan(
-          result,
-          buildRemediationPlan(result, { graph: lastGraph })
-        );
+        // One plan computation feeds squiggles, hover cards, and fix briefs.
+        const advice = adviceForScan(result, lastPlan);
         hoverProvider.update(advice);
         const folder = vscode.workspace.workspaceFolders?.[0];
         if (folder) await updateDiagnostics(diagnostics, folder, advice);

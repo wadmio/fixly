@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import type { DependencyGraph, ScanResult } from "@fixly/core";
+import { buildRemediationPlan, type DependencyGraph, type ScanResult } from "@fixly/core";
+import { buildFixBrief } from "./brief";
 import { renderHtml, buildSummaryText } from "./panel-render";
 
 function makeNonce(): string {
@@ -85,6 +86,17 @@ export class FixlyPanel {
       case "copySummary":
         await vscode.env.clipboard.writeText(buildSummaryText(this.result));
         vscode.window.showInformationMessage("Fixly: summary copied to clipboard.");
+        break;
+      case "copyBrief":
+        await vscode.env.clipboard.writeText(
+          buildFixBrief(
+            this.result,
+            buildRemediationPlan(this.result, { graph: this.graph })
+          )
+        );
+        vscode.window.showInformationMessage(
+          "Fixly: complete fix brief copied — paste it to a teammate or coding agent."
+        );
         break;
       case "exportJson": {
         const uri = await vscode.window.showSaveDialog({
