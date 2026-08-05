@@ -34,7 +34,7 @@ export async function scanLocalProject(
   const packageJson = await readJsonFile(join(root, "package.json"));
   if (packageJson === null) {
     throw new Error(
-      `No package.json in ${root} — point fixly at an npm project (or pass a GitHub URL).`
+      `No package.json in ${root} — point fixly at an npm project directory.`
     );
   }
   const packageLock = await readJsonFile(join(root, "package-lock.json"));
