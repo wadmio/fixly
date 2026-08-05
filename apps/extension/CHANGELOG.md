@@ -19,19 +19,26 @@ verifies the outcome on the next scan — it no longer edits anything.
   to any file or launches any process.
 - Quick Fix lightbulb that rewrote dependency version ranges in package.json.
 
+### Added
+
+- Risk-aware diagnostics with remediation hover cards in package.json.
+- **Copy Fix Brief** — deterministic, paste-ready fix instructions for a
+  teammate or AI agent: minimum safe target, resolution path, semver jump,
+  risk, rationale, exact `overrides` JSON for transitive pins, and explicit
+  blocked / no-fix statements. Available as **Fixly: Copy Complete Fix Brief**,
+  a lightbulb code action on each Fixly diagnostic, and a report-panel button.
+  Clipboard only — nothing is applied.
+- **Post-change verification** — after any external package-lock.json change
+  (you or your agent ran npm install), the watcher's rescan classifies every
+  finding as VERIFIED_RESOLVED / STILL_PRESENT / NEW_FINDING_INTRODUCED and
+  reports one concise summary (toast + output channel).
+
 ### Kept
 
 - The full remediation analysis: per-package resolution path, graph-checked
   minimum safe target, semver distance, risk classification, rationale, and
   the Grade Forecast — in the report panel, status bar, and diagnostics.
 - On-save and lock-file-watch rescans.
-
-### Coming in this release line
-
-- Risk-aware diagnostics with remediation hover cards in package.json.
-- "Copy fix brief" — paste-ready fix instructions for a teammate or AI agent.
-- Post-change verification: findings marked resolved / still present / newly
-  introduced after every external change to the lock file.
 
 ## 0.1.3 and earlier
 

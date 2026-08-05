@@ -18,6 +18,11 @@ manifest watcher then verifies outcomes on the next scan.
   resolves the full dependency tree, queries OSV (+ NVD), and opens a report.
 - **Fixly: Show Last Report** (`fixly.showReport`) — re-opens the report panel
   (also what clicking the status bar item does).
+- **Fixly: Copy Complete Fix Brief** (`fixly.copyFixBrief`) — copies a
+  deterministic, paste-ready remediation brief for the whole scan (targets,
+  resolution paths, overrides JSON, blocked / no-fix statements) to hand to a
+  teammate or coding agent. Per-package briefs are on the lightbulb of each
+  Fixly diagnostic and nothing is ever applied by Fixly itself.
 
 ## In-editor feedback
 
@@ -35,6 +40,11 @@ manifest watcher then verifies outcomes on the next scan.
   editor **or** an external write to them (npm rewriting the lock file during
   `npm install`) triggers an automatic, quiet rescan (shared 1.2s debounce, so
   a burst of writes scans once). Toggle with `fixly.scanOnSave`.
+- **Verification after installs** — when the rescan was triggered by a
+  lock-file change (an install ran outside Fixly), the new scan is compared to
+  the previous one and every finding is classified: one toast like
+  `Fixly verification: 2 resolved, 1 still present, 0 new findings introduced.`
+  with per-finding detail in the Fixly output channel.
 - **Scan as you type** (opt-in) — with `fixly.scanOnType` enabled, editing
   `package.json` rescans from the **unsaved** editor buffer (1.5s debounce), no
   save required; the saved `package-lock.json` still supplies the tree.
