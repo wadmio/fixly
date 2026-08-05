@@ -1,8 +1,15 @@
 import * as vscode from "vscode";
-import { scanProjectFiles, type ScanResult } from "@fixly/core";
+import {
+  buildDependencyGraph,
+  scanProjectFiles,
+  type DependencyGraph,
+  type ScanResult,
+} from "@fixly/core";
 
 export type ScanOutcome =
-  | { ok: true; result: ScanResult }
+  /** `graph` is the lock-file dependency graph (null for v1/absent locks) —
+   *  the remediation surfaces use it to check dependent version constraints. */
+  | { ok: true; result: ScanResult; graph: DependencyGraph | null }
   | { ok: false; error: string };
 
 /** Mask an API key for logging — reveal only the last 4 chars, never the rest. */
@@ -116,5 +123,5 @@ export async function scanWorkspace(
     `Scan complete: ${result.vulnerabilities.length} vulnerabilities across ${result.totalPackages} packages.`
   );
 
-  return { ok: true, result };
+  return { ok: true, result, graph: buildDependencyGraph(packageLock) };
 }

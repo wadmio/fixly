@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ScanResult, ScanVulnerability } from "@fixly/core";
+import { buildDependencyGraph, type ScanResult, type ScanVulnerability } from "@fixly/core";
 import { escapeHtml, buildSummaryText, renderHtml } from "../src/panel-render";
 
 function vuln(over: Partial<ScanVulnerability> = {}): ScanVulnerability {
@@ -96,5 +96,84 @@ describe("renderHtml", () => {
   it("renders a clean state when there are no vulnerabilities", () => {
     const html = renderHtml(result({ vulnerabilities: [] }), "n");
     expect(html).toContain("No vulnerabilities found");
+  });
+});
+
+describe("renderHtml — remediation plan classification", () => {
+  it("shows the plan with a calm chip for a patch-level direct fix and its rationale", () => {
+    const html = renderHtml(
+      result({ vulnerabilities: [vuln({ installedVersion: "1.2.0", fixedVersion: "1.2.9" })] }),
+      "n"
+    );
+    expect(html).toContain("Remediation Plan");
+    expect(html).toContain('class="chip risk-low">patch</span>');
+    expect(html).toContain("patch-level bump");
+  });
+
+  it("marks a MAJOR jump and a transitive override as visually elevated", () => {
+    const html = renderHtml(
+      result({
+        vulnerabilities: [
+          vuln({ package: "big-jump", installedVersion: "1.0.0", fixedVersion: "2.0.0" }),
+          vuln({
+            package: "deep",
+            osvId: "GHSA-deep",
+            dependencyType: "transitive",
+            installedVersion: "1.0.0",
+            fixedVersion: "1.0.1",
+          }),
+        ],
+      }),
+      "n"
+    );
+    expect(html).toContain('class="chip risk-elevated" title="May contain breaking changes — review the changelog">major</span>');
+    expect(html).toContain(">override</span>");
+  });
+
+  it("renders the Blocked section when a parent range forbids the fix", () => {
+    const graph = buildDependencyGraph({
+      lockfileVersion: 3,
+      packages: {
+        "": { dependencies: { parent: "^3.0.0" } },
+        "node_modules/parent": { version: "3.0.0", dependencies: { pinned: "~1.0.0" } },
+        "node_modules/pinned": { version: "1.0.0" },
+      },
+    });
+    const html = renderHtml(
+      result({
+        vulnerabilities: [
+          vuln({
+            package: "pinned",
+            osvId: "GHSA-blocked",
+            dependencyType: "transitive",
+            installedVersion: "1.0.0",
+            fixedVersion: "1.1.0",
+          }),
+        ],
+      }),
+      "n",
+      graph
+    );
+    expect(html).toContain("Blocked — a fix exists, but no safe edit is available");
+    expect(html).toContain("parent@3.0.0 requires &quot;~1.0.0&quot;");
+    // Advice-only: the report never renders an apply control.
+    expect(html).not.toContain('id="apply"');
+  });
+
+  it("lists findings with no published fix", () => {
+    const html = renderHtml(
+      result({ vulnerabilities: [vuln({ osvId: "GHSA-stuck", fixedVersion: null })] }),
+      "n"
+    );
+    expect(html).toContain("No fix published yet");
+    expect(html).toContain("GHSA-stuck");
+  });
+
+  it("escapes rationale text like any other third-party-derived string", () => {
+    const html = renderHtml(
+      result({ vulnerabilities: [vuln({ package: "<script>x</script>" })] }),
+      "n"
+    );
+    expect(html).not.toContain("<script>x</script>");
   });
 });

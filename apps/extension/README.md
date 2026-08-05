@@ -4,6 +4,13 @@ Scan the open project's npm dependencies — direct **and transitive** — for
 known vulnerabilities, using the shared [`@fixly/core`](../../packages/core)
 scanner (OSV detection + NVD CVE cross-referencing).
 
+**Fixly analyzes and verifies, never modifies.** It computes deterministic,
+graph-accurate remediation intelligence — the minimum safe target version
+checked against your real `package-lock.json` dependency graph, the resolution
+path, the semver jump size, and why — and hands it to you (or your AI agent)
+as precise advice. It never edits `package.json` and never runs installs; the
+manifest watcher then verifies outcomes on the next scan.
+
 ## Commands
 
 - **Fixly: Scan Current Project** (`fixly.scanCurrentProject`) — reads
@@ -11,17 +18,6 @@ scanner (OSV detection + NVD CVE cross-referencing).
   resolves the full dependency tree, queries OSV (+ NVD), and opens a report.
 - **Fixly: Show Last Report** (`fixly.showReport`) — re-opens the report panel
   (also what clicking the status bar item does).
-- **Fixly: Apply Remediation Plan** (`fixly.applyRemediationPlan`) — writes the
-  scan's fix plan into `package.json`: direct **upgrades** (preserving `^`/`~`
-  style) and transitive `overrides`. It first opens a side-by-side **diff
-  preview** of the proposed `package.json` and asks to confirm — nothing is
-  written until you click **Apply**. Malicious packages are never auto-edited;
-  it lists the `npm uninstall` commands to run by hand. Fixly never starts an
-  install unprompted — the completion toast offers a **Run npm install** button
-  that runs it in a visible integrated terminal, and once npm rewrites
-  `package-lock.json` the manifest watcher rescans automatically, closing the
-  apply → install → verify loop in-editor. Also triggered by the **Apply Fix
-  Plan** button in the report.
 
 ## In-editor feedback
 
@@ -71,8 +67,14 @@ masked in the **Fixly** output channel and only ever sent to NVD.
 A webview panel shows:
 
 - The **Fixly Score** (A–F) with the top fixes, and a **Grade Forecast** line —
-  the grade you'd reach by applying the fix plan (e.g. "Apply the fix plan →
-  B (86), +34 points") — with an **Apply Fix Plan** button.
+  the grade you'd reach by applying the fix plan (e.g. "Fix per the plan below →
+  B (86), +34 points").
+- The **Remediation Plan**: one advice entry per fixable package — installed →
+  target version with a risk chip (`patch`/`minor` calm; `major`/`override`
+  elevated; malware distinct), the engine's rationale, and a copy-paste
+  command. A **Blocked** card explains fixes a parent's version range forbids
+  (which parent, which range, what would unblock), and findings with no
+  published fix are listed as such — both are legitimate states, not errors.
 - Summary cards: packages (direct + transitive), total vulnerabilities, and
   per-severity counts (critical / high / medium / low / unknown).
 - A findings table: package (with a `transitive` chip where relevant),
@@ -106,3 +108,9 @@ npx vsce publish --packagePath fixly-vscode-<version>.vsix
 Published to the VS Code Marketplace as `fixly.fixly-vscode`. No auth, npm
 only — same scope as the rest of Fixly. Transitive scanning requires a
 `package-lock.json` in the workspace.
+
+**Fixly analyzes and verifies, never modifies.** The extension writes no files
+and launches no processes: remediation output is advice — exact target
+versions, override entries, copy-paste commands — for you or your AI agent to
+apply. After you make a change and your package manager rewrites the lock
+file, Fixly rescans automatically and reports what actually got fixed.

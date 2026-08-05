@@ -1,11 +1,15 @@
 import * as vscode from "vscode";
-import { buildRemediationPlan, type ScanResult, type Severity } from "@fixly/core";
+import {
+  buildRemediationPlan,
+  type DependencyGraph,
+  type ScanResult,
+  type Severity,
+} from "@fixly/core";
 import { scanWorkspace } from "./scanner";
 import { FixlyPanel } from "./panel";
+import { adviceForScan } from "./advice";
 import { updateDiagnostics } from "./diagnostics";
-import { FixlyQuickFixProvider } from "./quickfix";
-import { applyRemediationPlanToWorkspace } from "./apply-plan";
-import { ProposedContentProvider, PREVIEW_SCHEME } from "./preview";
+import { FixlyHoverProvider } from "./hover";
 import { debounce, type Debounced } from "./debounce";
 
 interface RunScanOpts {
@@ -13,20 +17,27 @@ interface RunScanOpts {
   quiet: boolean;
   /** Unsaved package.json text for as-you-type scans (see scanner.ts). */
   packageJsonText?: string;
+  /** True when this rescan was triggered by a package-lock.json write (npm
+   *  install / update ran) — the rescans that verify remediation outcomes. */
+  lockChanged?: boolean;
 }
 
 let output: vscode.OutputChannel;
-let quickFixes: FixlyQuickFixProvider;
-let preview: ProposedContentProvider;
 let statusBar: vscode.StatusBarItem;
 let diagnostics: vscode.DiagnosticCollection;
+let hoverProvider: FixlyHoverProvider;
 let lastResult: ScanResult | undefined;
+// Lock-file dependency graph from the same scan as lastResult (null when the
+// lock is v1/absent) — feeds dependent-constraint checks in the advice surfaces.
+let lastGraph: DependencyGraph | null = null;
 let scanning = false;
 // The freshest request that arrived while a scan was in flight; run when it
 // finishes so the latest text always wins and stale results are dropped.
 let pendingScan: RunScanOpts | null = null;
 let saveDebounce: ReturnType<typeof setTimeout> | undefined;
 let typeDebounce: Debounced<[string]> | undefined;
+// True when any trigger in the current debounce burst was a lock-file write.
+let pendingLockChange = false;
 
 const MANIFEST_FILES = new Set(["package.json", "package-lock.json"]);
 const SAVE_DEBOUNCE_MS = 1_200;
@@ -43,21 +54,14 @@ export function activate(context: vscode.ExtensionContext): void {
   diagnostics = vscode.languages.createDiagnosticCollection("fixly");
   context.subscriptions.push(diagnostics);
 
-  preview = new ProposedContentProvider();
+  hoverProvider = new FixlyHoverProvider();
   context.subscriptions.push(
-    preview,
-    vscode.workspace.registerTextDocumentContentProvider(PREVIEW_SCHEME, preview)
-  );
-
-  quickFixes = new FixlyQuickFixProvider();
-  context.subscriptions.push(
-    vscode.languages.registerCodeActionsProvider(
+    vscode.languages.registerHoverProvider(
       [
         { language: "json", pattern: "**/package.json" },
         { language: "jsonc", pattern: "**/package.json" },
       ],
-      quickFixes,
-      FixlyQuickFixProvider.metadata
+      hoverProvider
     )
   );
 
@@ -75,35 +79,23 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand("fixly.showReport", () => {
       if (lastResult) {
-        FixlyPanel.show(lastResult, () => runScan({ revealPanel: true, quiet: false }));
+        FixlyPanel.show(lastResult, lastGraph, () =>
+          runScan({ revealPanel: true, quiet: false })
+        );
       } else {
         runScan({ revealPanel: true, quiet: false });
       }
-    }),
-    vscode.commands.registerCommand("fixly.applyRemediationPlan", async () => {
-      const folder = vscode.workspace.workspaceFolders?.[0];
-      if (!folder) {
-        vscode.window.showWarningMessage(
-          "Fixly: open a Node.js project folder first."
-        );
-        return;
-      }
-      // Need a scan to plan from; run one if the user hasn't scanned yet.
-      if (!lastResult) await runScan({ revealPanel: false, quiet: false });
-      if (!lastResult) return; // scan failed — runScan already surfaced why
-      const log = (msg: string) =>
-        output.appendLine(`[${new Date().toISOString()}] ${msg}`);
-      await applyRemediationPlanToWorkspace(folder, lastResult, preview, log);
     }),
     // On-save scanning: saving package.json / package-lock.json re-scans
     // automatically. Disk writes that bypass the editor (npm install rewriting
     // the lock file) are caught by the manifest watcher below; both funnel
     // into the same debounced rescan so overlapping triggers scan once.
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (!MANIFEST_FILES.has(basename(doc.fileName))) return;
+      const name = basename(doc.fileName);
+      if (!MANIFEST_FILES.has(name)) return;
       const folder = vscode.workspace.workspaceFolders?.[0];
       if (!folder || !doc.uri.fsPath.startsWith(folder.uri.fsPath)) return;
-      scheduleRescan(`${basename(doc.fileName)} saved`);
+      scheduleRescan(`${name} saved`, name === "package-lock.json");
     }),
     // As-you-type scanning (opt-in, fixly.scanOnType): re-scan on edits to
     // package.json using the unsaved buffer text — no save required. Debounced,
@@ -127,8 +119,8 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // Manifest watcher: catches writes that never pass through the editor —
-  // chiefly npm install rewriting package-lock.json — so the apply-fixes →
-  // install → rescan loop closes without a manual rescan. The pattern is
+  // chiefly npm install rewriting package-lock.json — so the fix → install →
+  // rescan-and-verify loop closes without a manual rescan. The pattern is
   // deliberately non-recursive: only the workspace-root manifests, never the
   // thousands of package.json files npm writes under node_modules.
   const rootFolder = vscode.workspace.workspaceFolders?.[0];
@@ -136,8 +128,10 @@ export function activate(context: vscode.ExtensionContext): void {
     const watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(rootFolder, "{package.json,package-lock.json}")
     );
-    const onDiskChange = (uri: vscode.Uri) =>
-      scheduleRescan(`${basename(uri.fsPath)} changed on disk`);
+    const onDiskChange = (uri: vscode.Uri) => {
+      const name = basename(uri.fsPath);
+      scheduleRescan(`${name} changed on disk`, name === "package-lock.json");
+    };
     context.subscriptions.push(
       watcher,
       watcher.onDidChange(onDiskChange),
@@ -152,13 +146,18 @@ export function activate(context: vscode.ExtensionContext): void {
  * times) — one timer means any burst of triggers scans once. Honors the
  * fixly.scanOnSave setting, which gates all automatic rescans.
  */
-function scheduleRescan(reason: string): void {
+function scheduleRescan(reason: string, lockChanged = false): void {
   const config = vscode.workspace.getConfiguration("fixly");
   if (!config.get<boolean>("scanOnSave", true)) return;
+  // A burst of triggers scans once; the scan counts as lock-triggered when ANY
+  // trigger in the burst was a lock-file write (npm install fires several).
+  pendingLockChange ||= lockChanged;
   if (saveDebounce) clearTimeout(saveDebounce);
   saveDebounce = setTimeout(() => {
+    const withLock = pendingLockChange;
+    pendingLockChange = false;
     output.appendLine(`[${new Date().toISOString()}] ${reason} — rescanning…`);
-    runScan({ revealPanel: false, quiet: true });
+    runScan({ revealPanel: false, quiet: true, lockChanged: withLock });
   }, SAVE_DEBOUNCE_MS);
 }
 
@@ -174,7 +173,7 @@ function severityCounts(result: ScanResult): Record<Severity, number> {
   return counts;
 }
 
-function updateStatusBar(result: ScanResult): void {
+function updateStatusBar(result: ScanResult, graph: DependencyGraph | null): void {
   const counts = severityCounts(result);
   const total = result.vulnerabilities.length;
 
@@ -206,11 +205,13 @@ function updateStatusBar(result: ScanResult): void {
       : counts.medium > 0
         ? new vscode.ThemeColor("statusBarItem.warningBackground")
         : undefined;
-  const plan = buildRemediationPlan(result);
+  const plan = buildRemediationPlan(result, { graph });
   const forecastNote =
     plan.actions.length > 0
       ? ` Fix plan → ${plan.forecast.after.grade} (${plan.forecast.after.score}).`
-      : "";
+      : plan.blocked.length > 0
+        ? ` ${plan.blocked.length} fix${plan.blocked.length === 1 ? "" : "es"} blocked by parent ranges — see the report.`
+        : "";
   statusBar.tooltip = `Fixly — ${total} known ${total === 1 ? "vulnerability" : "vulnerabilities"} across ${result.totalPackages} packages (${result.transitivePackages} transitive scanned). Click for the full report.${forecastNote}`;
 }
 
@@ -270,16 +271,24 @@ async function runScan(opts: RunScanOpts): Promise<void> {
         );
 
         lastResult = result;
-        updateStatusBar(result);
+        lastGraph = outcome.graph;
+        updateStatusBar(result, lastGraph);
 
-        quickFixes.updateFromResult(result);
+        // One advice computation feeds both squiggles and hover cards.
+        const advice = adviceForScan(
+          result,
+          buildRemediationPlan(result, { graph: lastGraph })
+        );
+        hoverProvider.update(advice);
         const folder = vscode.workspace.workspaceFolders?.[0];
-        if (folder) await updateDiagnostics(diagnostics, folder, result);
+        if (folder) await updateDiagnostics(diagnostics, folder, advice);
 
         if (opts.revealPanel) {
-          FixlyPanel.show(result, () => runScan({ revealPanel: true, quiet: false }));
+          FixlyPanel.show(result, lastGraph, () =>
+            runScan({ revealPanel: true, quiet: false })
+          );
         } else {
-          FixlyPanel.updateIfOpen(result);
+          FixlyPanel.updateIfOpen(result, lastGraph);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
