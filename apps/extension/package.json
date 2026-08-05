@@ -30,8 +30,24 @@
       {
         "command": "fixly.showReport",
         "title": "Fixly: Show Last Report"
+      },
+      {
+        "command": "fixly.copyFixBrief",
+        "title": "Fixly: Copy Complete Fix Brief"
+      },
+      {
+        "command": "fixly.copyPackageBrief",
+        "title": "Fixly: Copy Fix Brief for Package"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "fixly.copyPackageBrief",
+          "when": "false"
+        }
+      ]
+    },
     "configuration": {
       "title": "Fixly",
       "properties": {

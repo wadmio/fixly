@@ -97,6 +97,14 @@ describe("renderHtml", () => {
     const html = renderHtml(result({ vulnerabilities: [] }), "n");
     expect(html).toContain("No vulnerabilities found");
   });
+
+  it("offers the Copy Fix Brief action (copy-only; no apply control exists)", () => {
+    const html = renderHtml(result(), "n");
+    expect(html).toContain('id="brief"');
+    expect(html).toContain("Copy Fix Brief");
+    expect(html).toContain('postMessage({ type: "copyBrief" })');
+    expect(html).not.toMatch(/apply/i);
+  });
 });
 
 describe("renderHtml — remediation plan classification", () => {

@@ -321,6 +321,7 @@ export function renderHtml(
 
   <div class="actions">
     <button id="rescan">Rescan Project</button>
+    <button id="brief" class="secondary" title="Copy a paste-ready remediation brief for a teammate or coding agent — Fixly never applies it">Copy Fix Brief</button>
     <button id="copy" class="secondary">Copy Summary</button>
     <button id="export" class="secondary">Export JSON Report</button>
   </div>
@@ -341,6 +342,7 @@ export function renderHtml(
   <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();
     document.getElementById("rescan").addEventListener("click", () => vscodeApi.postMessage({ type: "rescan" }));
+    document.getElementById("brief").addEventListener("click", () => vscodeApi.postMessage({ type: "copyBrief" }));
     document.getElementById("copy").addEventListener("click", () => vscodeApi.postMessage({ type: "copySummary" }));
     document.getElementById("export").addEventListener("click", () => vscodeApi.postMessage({ type: "exportJson" }));
   </script>
