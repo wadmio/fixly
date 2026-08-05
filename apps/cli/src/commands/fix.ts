@@ -1,25 +1,17 @@
 // `fixly fix [dir]` — the remediation engine at the terminal. Scans, builds
-// the ordered fix plan with its Grade Forecast, and prints it as a dry run.
-// `--write` applies the plan to package.json (direct bumps keep your `^`/`~`
-// style, transitive pins land in `overrides`, malware is deleted) — then you
-// run your package manager to realize it. We edit the manifest; we never run
-// installs for you.
+// the ordered fix plan with its Grade Forecast, and prints it as precise,
+// copy-paste advice: exact target versions, override entries, and the points
+// each action recovers. Fixly analyzes and verifies, never modifies — apply
+// the plan by hand (or hand it to your AI agent), run your package manager,
+// then `fixly vibecheck` to verify the forecast.
 
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import {
-  applyRemediationPlan,
-  buildRemediationPlan,
-  type RemediationAction,
-} from "@fixly/core";
+import { buildRemediationPlan, type RemediationAction } from "@fixly/core";
 import { scanLocalProject } from "../local";
 import { bold, dim, gradeColor, gray, green, red, yellow } from "../ui";
 
 export interface FixOptions {
   dir: string;
   json: boolean;
-  /** Apply the plan to package.json instead of only printing it. */
-  write: boolean;
 }
 
 function actionGlyph(action: RemediationAction): string {
@@ -41,7 +33,7 @@ export async function fix(options: FixOptions): Promise<number> {
   }
   const plan = buildRemediationPlan(result);
 
-  if (options.json && !options.write) {
+  if (options.json) {
     process.stdout.write(JSON.stringify(plan, null, 2) + "\n");
     return 0;
   }
@@ -59,7 +51,7 @@ export async function fix(options: FixOptions): Promise<number> {
     lines.push(
       plan.totalFindings === 0
         ? `  ${green("✔")} nothing to fix — ${result.totalPackages} packages checked, no findings.`
-        : `  ${yellow("⚠")} ${plan.totalFindings} finding${plan.totalFindings === 1 ? "" : "s"}, but none have a published fix yet. Nothing to apply.`
+        : `  ${yellow("⚠")} ${plan.totalFindings} finding${plan.totalFindings === 1 ? "" : "s"}, but none have a published fix yet.`
     );
     lines.push("");
     process.stdout.write(lines.join("\n") + "\n");
@@ -90,30 +82,13 @@ export async function fix(options: FixOptions): Promise<number> {
     }
   }
 
-  if (!options.write) {
-    lines.push("");
-    lines.push(`  ${dim("dry run — pass")} ${bold("--write")} ${dim("to apply this plan to package.json")}`);
-    lines.push("");
-    process.stdout.write(lines.join("\n") + "\n");
-    return 0;
-  }
-
-  // --write: rewrite package.json in place, then hand off to the package manager.
-  const manifestPath = join(options.dir, "package.json");
-  const manifestText = await readFile(manifestPath, "utf8");
-  const applied = applyRemediationPlan(manifestText, plan);
-  await writeFile(manifestPath, applied.text, "utf8");
-
   lines.push("");
-  lines.push(`  ${green("✔")} ${bold("package.json updated:")}`);
-  for (const change of applied.changes) lines.push(`      ${change}`);
-  for (const skippedAction of applied.skipped) {
-    lines.push(
-      `      ${gray(`skipped ${skippedAction.package} (not declared in package.json — run: ${skippedAction.command})`)}`
-    );
-  }
-  lines.push("");
-  lines.push(`  ${bold("Next:")} ${green("$")} npm install ${dim("&&")} fixly vibecheck ${dim("— verify the forecast")}`);
+  lines.push(
+    `  ${dim("Fixly analyzes and verifies, never modifies. Apply the commands above (or paste")}`
+  );
+  lines.push(
+    `  ${dim("them into your AI agent), then:")} ${green("$")} npm install ${dim("&&")} fixly vibecheck ${dim("— verify the forecast")}`
+  );
   lines.push("");
   process.stdout.write(lines.join("\n") + "\n");
   return 0;
