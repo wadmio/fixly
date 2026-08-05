@@ -175,6 +175,176 @@ export function isVersionInOsvRanges(
   return evaluable ? false : null;
 }
 
+// ---------------------------------------------------------------------------
+// npm range satisfaction — a minimal, dependency-free subset used by the
+// remediation resolution engine to test a candidate version against the
+// ranges dependents declare (package.json / package-lock.json entries).
+//
+// Supported: exact versions, =, >=, >, <, <=, ^, ~, x-ranges (1, 1.2, 1.2.x,
+// *), hyphen ranges, space-separated AND, `||` OR. Anything else (dist-tags,
+// git/file/workspace specifiers, npm aliases) is "not evaluable" → null.
+// Callers MUST treat null as unknown — never as a match, never as a block.
+//
+// Prerelease versions compare by plain semver precedence; npm's extra
+// prerelease gating (a prerelease only satisfies a range that mentions a
+// prerelease of the same [major, minor, patch]) is intentionally not
+// modeled — the versions we test are release versions from OSV fix events.
+// ---------------------------------------------------------------------------
+
+type BoundOp = ">=" | ">" | "<" | "<=" | "=";
+
+interface Bound {
+  op: BoundOp;
+  version: ParsedVersion;
+}
+
+/** Parse a possibly-partial version ("1", "1.2", "1.2.x", "1.2.3-beta.1").
+ *  `specified` counts the numeric parts before the first x, star, or missing
+ *  part. */
+function parsePartial(
+  raw: string
+): { nums: [number, number, number]; specified: number; prerelease: string | null } | null {
+  let v = raw.trim().replace(/^v/i, "").split("+")[0];
+  const dash = v.indexOf("-");
+  const prerelease = dash === -1 ? null : v.slice(dash + 1) || null;
+  if (dash !== -1) v = v.slice(0, dash);
+  if (v === "") return null;
+  const segs = v.split(".");
+  if (segs.length > 3) return null;
+  const nums: [number, number, number] = [0, 0, 0];
+  let specified = 0;
+  for (let i = 0; i < segs.length; i++) {
+    if (/^[xX*]$/.test(segs[i])) break;
+    if (!/^\d+$/.test(segs[i])) return null;
+    nums[i] = Number(segs[i]);
+    specified = i + 1;
+  }
+  return { nums, specified, prerelease };
+}
+
+function bound(op: BoundOp, nums: [number, number, number], prerelease: string | null = null): Bound {
+  return { op, version: { parts: [...nums], prerelease } };
+}
+
+/** Convert one range token into AND-ed bounds; null = not evaluable. */
+function parseComparators(token: string): Bound[] | null {
+  if (token === "" || /^[xX*]$/.test(token)) return [];
+
+  if (token.startsWith("^")) {
+    const p = parsePartial(token.slice(1));
+    if (!p || p.specified === 0) return p ? [] : null;
+    const [maj, min, pat] = p.nums;
+    // Bump the left-most non-zero specified part (npm caret rule).
+    const upper: [number, number, number] =
+      maj > 0
+        ? [maj + 1, 0, 0]
+        : min > 0
+          ? [0, min + 1, 0]
+          : p.specified >= 3
+            ? [0, 0, pat + 1]
+            : p.specified === 2
+              ? [0, min + 1, 0]
+              : [maj + 1, 0, 0];
+    return [bound(">=", p.nums, p.prerelease), bound("<", upper)];
+  }
+
+  if (token.startsWith("~")) {
+    const p = parsePartial(token.slice(1));
+    if (!p || p.specified === 0) return p ? [] : null;
+    const [maj, min] = p.nums;
+    const upper: [number, number, number] =
+      p.specified >= 2 ? [maj, min + 1, 0] : [maj + 1, 0, 0];
+    return [bound(">=", p.nums, p.prerelease), bound("<", upper)];
+  }
+
+  const cmp = /^(>=|<=|>|<|=)(.+)$/.exec(token);
+  if (cmp) {
+    const op = cmp[1] as BoundOp;
+    const p = parsePartial(cmp[2]);
+    if (!p || p.specified === 0) return null;
+    if (p.specified === 3) return [bound(op, p.nums, p.prerelease)];
+    // Partial versions: npm treats ">1.2" as ">=1.3.0" and "<=1.2" as "<1.3.0".
+    const next: [number, number, number] =
+      p.specified === 2 ? [p.nums[0], p.nums[1] + 1, 0] : [p.nums[0] + 1, 0, 0];
+    if (op === ">") return [bound(">=", next)];
+    if (op === "<=") return [bound("<", next)];
+    return [bound(op, p.nums)];
+  }
+
+  // Bare version: exact when fully specified, x-range otherwise.
+  const p = parsePartial(token);
+  if (!p || p.specified === 0) return p ? [] : null;
+  if (p.specified === 3) return [bound("=", p.nums, p.prerelease)];
+  const upper: [number, number, number] =
+    p.specified === 2 ? [p.nums[0], p.nums[1] + 1, 0] : [p.nums[0] + 1, 0, 0];
+  return [bound(">=", p.nums), bound("<", upper)];
+}
+
+/** One `||` alternative → AND-ed bounds; null when any token is unparseable. */
+function parseAlternative(alt: string): Bound[] | null {
+  // Attach dangling operators to their version (">= 1.2.3" → ">=1.2.3").
+  const normalized = alt.replace(/([><=^~]+)\s+/g, "$1").trim();
+
+  const hyphen = /^(.+?)\s+-\s+(.+)$/.exec(normalized);
+  if (hyphen) {
+    const lo = parsePartial(hyphen[1]);
+    const hi = parsePartial(hyphen[2]);
+    if (!lo || !hi || lo.specified === 0 || hi.specified === 0) return null;
+    const bounds = [bound(">=", lo.nums, lo.prerelease)];
+    if (hi.specified === 3) bounds.push(bound("<=", hi.nums, hi.prerelease));
+    else {
+      const upper: [number, number, number] =
+        hi.specified === 2 ? [hi.nums[0], hi.nums[1] + 1, 0] : [hi.nums[0] + 1, 0, 0];
+      bounds.push(bound("<", upper));
+    }
+    return bounds;
+  }
+
+  const bounds: Bound[] = [];
+  for (const token of normalized.split(/\s+/)) {
+    const parsed = parseComparators(token);
+    if (parsed === null) return null;
+    bounds.push(...parsed);
+  }
+  return bounds;
+}
+
+function holds(target: ParsedVersion, b: Bound): boolean {
+  const cmp = compareParsed(target, b.version);
+  switch (b.op) {
+    case ">=": return cmp >= 0;
+    case ">": return cmp > 0;
+    case "<": return cmp < 0;
+    case "<=": return cmp <= 0;
+    case "=": return cmp === 0;
+  }
+}
+
+/**
+ * Decide whether `version` satisfies an npm-style `range`.
+ *
+ * Returns:
+ *   - true  — the version satisfies at least one `||` alternative,
+ *   - false — every alternative was evaluable and none matched,
+ *   - null  — the version or every non-matching alternative was unparseable
+ *             (treat as unknown; never as a match or a block).
+ */
+export function satisfiesRange(version: string, range: string): boolean | null {
+  const target = parseVersion(version);
+  if (!target) return null;
+
+  let unknown = false;
+  for (const alt of range.split("||")) {
+    const bounds = parseAlternative(alt);
+    if (bounds === null) {
+      unknown = true;
+      continue;
+    }
+    if (bounds.every((b) => holds(target, b))) return true;
+  }
+  return unknown ? null : false;
+}
+
 function formatBound(introduced: string | null, op: "<" | "<=" | null, bound: string | null): string {
   const lo = introduced && introduced !== "0" ? `>=${introduced}` : "";
   const hi = op && bound ? `${op}${bound}` : "";
