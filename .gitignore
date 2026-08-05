@@ -44,3 +44,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local editor/agent config (personal permission allowlists etc.)
+.claude/
+
+# personal artifacts parked in the repo root (course docs, repo snapshots) —
+# the archives are 150-280 MB each, far over GitHub's 100 MB hard limit
+/*.zip
+/*.rar
+/*.pdf
