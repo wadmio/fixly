@@ -1,5 +1,13 @@
 # Demo changes — `feat/extension-remediation-plan`
 
+> **Superseded (v0.2.0 pivot):** the apply-fix flow described in section 1 has
+> been **removed**. **Fixly analyzes and verifies, never modifies** — it now
+> computes graph-accurate remediation advice (resolution path, minimum safe
+> target, semver distance, risk, blocked-by-parent analysis) and verifies
+> outcomes after external changes, but never edits `package.json` or runs
+> installs. See [apps/extension/CHANGELOG.md](apps/extension/CHANGELOG.md).
+> Sections below are kept as a historical record of the branch.
+
 Everything on this branch vs `main`, for a capstone walkthrough. Scope is taken
 strictly from `git diff main...HEAD` (18 files, +663/−66). Five features: three
 in the VS Code extension, two in the shared core (`@fixly/core`) that the
@@ -20,7 +28,7 @@ Host**. In that window open a Node.js project that has a `package.json` **and**
 
 ---
 
-## 1. Apply Remediation Plan — one-click fixes with a diff preview
+## 1. ~~Apply Remediation Plan~~ — REMOVED in the v0.2.0 advice-only pivot
 
 **What it does:** turns the current scan's fix plan into edits to `package.json`
 (dependency upgrades + transitive `overrides`), shown as a side-by-side diff you

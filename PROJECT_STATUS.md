@@ -42,8 +42,9 @@ that trains the name-risk model the verdict engine runs via ONNX.
   extension with a webview report, **inline diagnostics on package.json**,
   **on-save rescans** (`fixly.scanOnSave`) plus opt-in **as-you-type** rescans
   (`fixly.scanOnType`), a live **status-bar** severity indicator, a **Grade Forecast**
-  in the panel and status bar, and a one-click **Apply Remediation Plan**
-  (`fixly.applyRemediationPlan`) with a diff preview + confirmation.
+  in the panel and status bar, and a graph-accurate **Remediation Plan** (advice
+  with risk classification and blocked-by-parent analysis — Fixly analyzes and
+  verifies, never modifies).
 - **CLI** (`fixly`): `vibecheck` (A–F grade + top fixes), `scan` (`--json`,
   `--sarif`, `--fail-on` CI gate — malware always fails a gate), `check`
   (SAFE/CAUTION/BLOCK verdict), `guard` (pre-install check wrapped around
