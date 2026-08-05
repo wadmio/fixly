@@ -14,6 +14,7 @@ import { FixlyCodeActionProvider } from "./codeaction";
 import { updateDiagnostics } from "./diagnostics";
 import { FixlyHoverProvider } from "./hover";
 import { debounce, type Debounced } from "./debounce";
+import { shouldVerify, verifyFindings, type VerificationSummary } from "./verify";
 
 interface RunScanOpts {
   revealPanel: boolean;
@@ -35,6 +36,9 @@ let lastResult: ScanResult | undefined;
 let lastGraph: DependencyGraph | null = null;
 // Remediation plan from the same scan — feeds the copyable fix briefs.
 let lastPlan: RemediationPlan | undefined;
+// Result of the latest lock-change verification (exposed via the extension API
+// so real-host tests can assert it; users see it as one toast + output lines).
+let lastVerification: VerificationSummary | undefined;
 let scanning = false;
 // The freshest request that arrived while a scan was in flight; run when it
 // finishes so the latest text always wins and stale results are dropped.
@@ -52,7 +56,13 @@ function basename(fsPath: string): string {
   return fsPath.split(/[\\/]/).pop() ?? "";
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+/** Minimal API returned by activate() — lets extension-host tests observe the
+ *  last verification without reaching into notifications or the output channel. */
+export interface FixlyExtensionApi {
+  getLastVerification(): VerificationSummary | undefined;
+}
+
+export function activate(context: vscode.ExtensionContext): FixlyExtensionApi {
   output = vscode.window.createOutputChannel("Fixly");
   context.subscriptions.push(output);
 
@@ -158,6 +168,8 @@ export function activate(context: vscode.ExtensionContext): void {
       watcher.onDidCreate(onDiskChange)
     );
   }
+
+  return { getLastVerification: () => lastVerification };
 }
 
 /**
@@ -315,10 +327,21 @@ async function runScan(opts: RunScanOpts): Promise<void> {
           `Scan complete: ${result.vulnerabilities.length} vulnerabilities across ${result.totalPackages} packages (${result.directPackages} direct, ${result.transitivePackages} transitive).`
         );
 
+        const previous = lastResult;
         lastResult = result;
         lastGraph = outcome.graph;
         lastPlan = buildRemediationPlan(result, { graph: lastGraph });
         updateStatusBar(result, lastPlan);
+
+        // Finding-level verification: a lock-file change means someone ran an
+        // install outside Fixly — compare scans and report what it actually
+        // changed. One toast per verified rescan, details in the output channel.
+        if (shouldVerify(opts.lockChanged, previous, result)) {
+          lastVerification = verifyFindings(previous, result);
+          log(lastVerification.message);
+          for (const line of lastVerification.lines) log(`  ${line}`);
+          vscode.window.showInformationMessage(lastVerification.message);
+        }
 
         // One plan computation feeds squiggles, hover cards, and fix briefs.
         const advice = adviceForScan(result, lastPlan);
